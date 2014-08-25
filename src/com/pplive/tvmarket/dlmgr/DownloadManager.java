@@ -10,93 +10,95 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
-import com.pplive.tvmarket.dlmgr.data.DownloadOpenHelper;
+import com.pplive.tvmarket.dlmgr.data.DownloadDBHelper;
 import com.pplive.tvmarket.dlmgr.data.DownloadTaskData;
+import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
 import com.pplive.tvmarket.dlmgr.error.SDCardCannotWriteException;
 import com.pplive.tvmarket.dlmgr.error.SDCardNotFoundException;
 import com.pplive.tvmarket.dlmgr.error.TaskAlreadyExistException;
 import com.pplive.tvmarket.dlmgr.error.TaskFullException;
 
-public class DownloadManager extends Thread {
+public class DownloadManager {
 
 	private Context mContext;
 
-	private TaskQueue mTaskQueue;
+	private BlockingQueue<Runnable> mTaskQueue;
 	private List<DownloadTask> mDownloadingTasks;
 	private List<DownloadTask> mPausingTasks;
 	private List<DownloadTaskData> mDownloadedTasks;
-	private DownloadOpenHelper mDBHelper;
+	private DownloadDBHelper mDBHelper;
 	private List<DownloadManagerListener> mListeners;
-	
+	private ExecutorService mTaskPool;
+
 	static final String TAG = "DownloadManager";
 
 	enum NotifyAction {
-		NA_ADD, NA_BEGIN, NA_UPDATE, NA_DONE, NA_DELETE,NA_ERROR
+		NA_ADD, NA_BEGIN, NA_UPDATE, NA_DONE, NA_DELETE, NA_ERROR
 	}
 
 	/** 专用于更新db数据的工作线程 */
-	private static final HandlerThread sWorkerThread = new HandlerThread(
-			"db work");
+	private static final HandlerThread sDBThread = new HandlerThread("db work");
+	private static final HandlerThread sLogicThread = new HandlerThread(
+			"work logic");
 	static {
-		sWorkerThread.start();
+		sDBThread.start();
+		sLogicThread.start();
 	}
-	private static final Handler sDBHdlr = new Handler(
-			sWorkerThread.getLooper());
+	private static final Handler sDBHdlr = new Handler(sDBThread.getLooper());
+
+	private static final Handler sLogicHdlr = new Handler(
+			sLogicThread.getLooper());
 
 	private final Handler mNotifyHdlr;// 主线程的通知
 
 	private Boolean isRunning = false;
 
 	public DownloadManager(Context context) {
-		
+
 		mContext = context;
-		mTaskQueue = new TaskQueue();
+		mTaskQueue = new LinkedBlockingQueue<Runnable>();
 		mDownloadingTasks = new ArrayList<DownloadTask>();
 		mPausingTasks = new ArrayList<DownloadTask>();
 		mDownloadedTasks = new ArrayList<DownloadTaskData>();
-		mDBHelper = new DownloadOpenHelper(mContext);
+		mDBHelper = new DownloadDBHelper(mContext);
 		mNotifyHdlr = new Handler(mContext.getMainLooper());
 		mListeners = new ArrayList<DownloadManager.DownloadManagerListener>();
+		mTaskPool = new ThreadPoolExecutor(
+				DownloadManagerConfig.MAX_CONCURRENT_COUNT, 10, 20L,
+				TimeUnit.MILLISECONDS, mTaskQueue);
 	}
 
 	public void startManage() {
 		isRunning = true;
 		DownloadManagerHelper.mkdir();
-		start();
 		checkUncompleteTasks();
 	}
 
 	public void close() {
 		isRunning = false;
 		// pauseAllTask();
+		sLogicHdlr.removeCallbacksAndMessages(null);
 	}
 
 	public boolean isRunning() {
 		return isRunning;
 	}
 
-	@Override
-	public void run() {
+	public void addTask(DownloadTaskData data) throws SDCardNotFoundException,
+			SDCardCannotWriteException, TaskFullException,
+			MalformedURLException, TaskAlreadyExistException {
 
-		super.run();
-		while (isRunning) {
-			DownloadTask task = mTaskQueue.poll();
-			mDownloadingTasks.add(task);
-			task.execute();
-		}
-	}
-
-	public void addTask(DownloadTaskData data)
-			throws SDCardNotFoundException, SDCardCannotWriteException,
-			TaskFullException, MalformedURLException, TaskAlreadyExistException {
-
-		if(hasTask(data.url)){
+		if (hasTask(data.url)) {
 			throw new TaskAlreadyExistException("task already exist");
 		}
-		
+
 		if (!DownloadManagerHelper.isSDCardPresent()) {
 			throw new SDCardNotFoundException("sd card not found");
 		}
@@ -113,11 +115,11 @@ public class DownloadManager extends Thread {
 		if (task.getFile() == null) {
 			throw new MalformedURLException();
 		}
-		
+
 		addTask(task);
 	}
 
-	private void addTaskSafely(DownloadTaskData data) {
+	public void addTaskSafely(DownloadTaskData data) {
 		try {
 			addTask(data);
 		} catch (Exception e) {
@@ -129,14 +131,10 @@ public class DownloadManager extends Thread {
 
 	private void addTask(DownloadTask task) {
 
-		task.getData().status = DownloadTaskData.PREPARE;
+		task.getData().status = DownloadStatus.WAITING;
+		mTaskPool.submit(task);
 		notifyTask(NotifyAction.NA_ADD, task);
-		mTaskQueue.offer(task);
 		syncDBUpdate(task.getData());
-
-		if (!this.isAlive()) {
-			this.startManage();
-		}
 	}
 
 	// public void reBroadcastAddAllTask() {
@@ -166,8 +164,9 @@ public class DownloadManager extends Thread {
 			}
 		}
 
-		for (int i = 0; i < mTaskQueue.size(); i++) {
-			task = mTaskQueue.get(i);
+		Iterator<Runnable> it = mTaskQueue.iterator();
+		while (it.hasNext()) {
+			task = (DownloadTask) it.next();
 			if (task.getUrl().equals(url)) {
 				return true;
 			}
@@ -183,34 +182,44 @@ public class DownloadManager extends Thread {
 		return false;
 	}
 
-	public DownloadTask getTask(int position) {
-
-		int downloadSize = getDownloadingTaskCount();
-
-		if (position >= downloadSize) {
-			return mTaskQueue.get(position - downloadSize);
-		} else {
-			return mDownloadingTasks.get(position);
-		}
-	}
+	// public DownloadTask getTask(int position) {
+	//
+	// int downloadSize = getDownloadingTaskCount();
+	//
+	// if (position >= downloadSize) {
+	// return mTaskQueue.get(position - downloadSize);
+	// } else {
+	// return mDownloadingTasks.get(position);
+	// }
+	// }
 
 	public DownloadTask getTask(String url) {
-		for (DownloadTask task : mDownloadingTasks) {
+
+		DownloadTask task = null;
+
+		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
+		while (itTask.hasNext()) {
+			task = (DownloadTask) itTask.next();
 			if (task.getUrl().equals(url))
-				return task;
+				break;
 		}
 
-		for (DownloadTask task : mPausingTasks) {
+		itTask = mPausingTasks.iterator();
+		while (itTask.hasNext()) {
+			task = (DownloadTask) itTask.next();
 			if (task.getUrl().equals(url))
-				return task;
+				break;
 		}
 
-		for (int i = 0; i < mTaskQueue.size(); i++) {
-			if (mTaskQueue.get(i).getUrl().equals(url))
-				return mTaskQueue.get(i);
+		Iterator<Runnable> it = mTaskQueue.iterator();
+		while (it.hasNext()) {
+			task = (DownloadTask) it.next();
+			if (task.getUrl().equals(url)) {
+				break;
+			}
 		}
 
-		return null;
+		return task;
 	}
 
 	public int getQueueTaskCount() {
@@ -237,7 +246,7 @@ public class DownloadManager extends Thread {
 
 		// 优先插入downloading的task
 		for (DownloadTaskData data : taskDatas) {
-			if (data.status == DownloadTaskData.DOWNLOADING) {
+			if (data.status == DownloadStatus.DOWNLOADING) {
 				addTaskSafely(data);
 			}
 		}
@@ -246,22 +255,32 @@ public class DownloadManager extends Thread {
 
 			switch (data.status) {
 
-			case DownloadTaskData.PREPARE:
+			case PREPARE:
 				addTaskSafely(data);
 				break;
 
-			case DownloadTaskData.PAUSED:
+			case PAUSED:
 				DownloadTask task = newDownloadTask(data);
 				mPausingTasks.add(task);
 
 				break;
 
-			case DownloadTaskData.DOWNLOADED:
+			case DONE:
 				// 判断文件是否存在，不存在则忽略
 				File f = DownloadManagerHelper.getFile(data.url);
 				if (f != null && f.exists()) {
 					mDownloadedTasks.add(data);
 				}
+				break;
+			case DOWNLOADING:
+				break;
+			case FAILED:
+				break;
+			case SUSPEND:
+				break;
+			case WAITING:
+				break;
+			default:
 				break;
 			}
 
@@ -276,7 +295,7 @@ public class DownloadManager extends Thread {
 		mListeners.remove(l);
 	}
 
-	public synchronized void deleteTask(String url) {
+	public void deleteTask(String url) {
 
 		DownloadTask task;
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
@@ -284,16 +303,16 @@ public class DownloadManager extends Thread {
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task != null && task.getUrl().equals(url)) {
-				task.onCancelled();
+				task.cancel();
 				mDownloadingTasks.remove(task);
 				notifyTask(NotifyAction.NA_DELETE, task);
 				itTask.remove();
 			}
 		}
 
-		itTask = mTaskQueue.iterator();
-		while (itTask.hasNext()) {
-			task = itTask.next();
+		Iterator<Runnable> itRun = mTaskQueue.iterator();
+		while (itRun.hasNext()) {
+			task = (DownloadTask) itRun.next();
 			if (task != null && task.getUrl().equals(url)) {
 				mTaskQueue.remove(task);
 				notifyTask(NotifyAction.NA_DELETE, task);
@@ -310,7 +329,7 @@ public class DownloadManager extends Thread {
 				itTask.remove();
 			}
 		}
-		
+
 		File file = DownloadManagerHelper.getFile(url);
 		if (file.exists())
 			file.delete();
@@ -323,14 +342,14 @@ public class DownloadManager extends Thread {
 	}
 
 	/** 清除当前所有的下载任务 */
-	public synchronized void deleteAllTask() {
+	public void deleteAllTask() {
 		DownloadTask task;
 
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
 
 		while (itTask.hasNext()) {
 			task = itTask.next();
-			task.onCancelled();
+			task.cancel();
 			notifyTask(NotifyAction.NA_DELETE, task);
 
 			String url = task.getUrl();
@@ -346,21 +365,35 @@ public class DownloadManager extends Thread {
 			itTask.remove();
 		}
 
-		itTask = mTaskQueue.iterator();
+		itTask = mPausingTasks.iterator();
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			notifyTask(NotifyAction.NA_DELETE, task);
+
+			String url = task.getUrl();
+			File file = DownloadManagerHelper.getFile(url);
+			if (file.exists())
+				file.delete();
+
+			file = DownloadManagerHelper.getTempFile(url);
+			if (file.exists())
+				file.delete();
+
 			syncDBDelete(task.getUrl());
 			itTask.remove();
 		}
 
-		itTask = mTaskQueue.iterator();
-		while (itTask.hasNext()) {
-			task = itTask.next();
+		Iterator<Runnable> itRun = mTaskQueue.iterator();
+		while (itRun.hasNext()) {
+			task = (DownloadTask) itRun.next();
 			notifyTask(NotifyAction.NA_DELETE, task);
 			String url = task.getUrl();
 
-			File file = DownloadManagerHelper.getTempFile(url);
+			File file = DownloadManagerHelper.getFile(url);
+			if (file.exists())
+				file.delete();
+
+			file = DownloadManagerHelper.getTempFile(url);
 			if (file.exists())
 				file.delete();
 
@@ -369,17 +402,17 @@ public class DownloadManager extends Thread {
 		}
 	}
 
-	public synchronized void pauseTask(String url) {
+	public void pauseTask(String url) {
 
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
 		DownloadTask task;
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task.getUrl().equals(url)) {
-				task.onCancelled();
+				task.cancel();
 
 				DownloadTaskData data = task.getData();
-				data.status = DownloadTaskData.PAUSED;
+				data.status = DownloadStatus.PAUSED;
 				task = newDownloadTask(data.copy());
 				mPausingTasks.add(task);
 				syncDBUpdate(data);
@@ -388,23 +421,23 @@ public class DownloadManager extends Thread {
 		}
 	}
 
-	public synchronized void pauseAllTask() {
+	public void pauseAllTask() {
 
 		DownloadTask task;
-		Iterator<DownloadTask> itTask = mTaskQueue.iterator();
+		Iterator<Runnable> itRun = mTaskQueue.iterator();
 
-		while (itTask.hasNext()) {
-			task = itTask.next();
+		while (itRun.hasNext()) {
+			task = (DownloadTask) itRun.next();
 			mPausingTasks.add(task);
-			itTask.remove();
+			itRun.remove();
 		}
 
-		itTask = mDownloadingTasks.iterator();
+		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
 		while (itTask.hasNext()) {
 			task = itTask.next();
-			task.onCancelled();
+			task.cancel();
 			DownloadTaskData data = task.getData();
-			data.status = DownloadTaskData.PAUSED;
+			data.status = DownloadStatus.PAUSED;
 			task = newDownloadTask(data.copy());
 			mPausingTasks.add(task);
 			syncDBUpdate(data);
@@ -412,7 +445,7 @@ public class DownloadManager extends Thread {
 		}
 	}
 
-	public synchronized void continueTask(String url) {
+	public void continueTask(String url) {
 
 		DownloadTask task;
 		Iterator<DownloadTask> itTask = mPausingTasks.iterator();
@@ -420,7 +453,7 @@ public class DownloadManager extends Thread {
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task.getUrl().equals(url)) {
-				task.getData().status = DownloadTaskData.PREPARE;
+				task.getData().status = DownloadStatus.PREPARE;
 				mTaskQueue.offer(task);
 				syncDBUpdate(task.getData());
 				itTask.remove();
@@ -428,26 +461,26 @@ public class DownloadManager extends Thread {
 		}
 	}
 
-	public synchronized void continueAllTask() {
+	public void continueAllTask() {
 
 		DownloadTask task;
 		Iterator<DownloadTask> itTask = mPausingTasks.iterator();
 
 		while (itTask.hasNext()) {
 			task = itTask.next();
-			task.getData().status = DownloadTaskData.PREPARE;
+			task.getData().status = DownloadStatus.PREPARE;
 			mTaskQueue.offer(task);
 			syncDBUpdate(task.getData());
 			itTask.remove();
 		}
 	}
 
-	public synchronized void completeTask(DownloadTask task) {
+	private void completeTask(DownloadTask task) {
 
 		if (mDownloadingTasks.contains(task)) {
 			// 清除下载任务
 			mDownloadingTasks.remove(task);
-			task.getData().status = DownloadTaskData.DOWNLOADED;
+			task.getData().status = DownloadStatus.DONE;
 			DownloadTaskData data = task.getData().copy();
 			mDownloadedTasks.add(data);
 			notifyTask(NotifyAction.NA_DONE, task);
@@ -494,14 +527,12 @@ public class DownloadManager extends Thread {
 
 			@Override
 			public void onPre(DownloadTask task) {
-				task.getData().status = DownloadTaskData.DOWNLOADING;
 				syncDBUpdate(task.getData());
 				notifyTask(NotifyAction.NA_BEGIN, task);
 			}
 
 			@Override
 			public void onFinished(DownloadTask task) {
-
 				completeTask(task);
 			}
 
@@ -536,46 +567,37 @@ public class DownloadManager extends Thread {
 	/**
 	 * A obstructed task queue
 	 */
-	private class TaskQueue extends LinkedList<DownloadTask> {
+//	private class TaskQueue extends LinkedBlockingQueue<DownloadTask> {
+//
+//		private static final long serialVersionUID = 4491199220015175982L;
+//
+//		public DownloadTask poll() {
+//
+//			DownloadTask task = null;
+//
+//			// Log.e(TAG, "---poll---cursize=" + mDownloadingTasks.size() +
+//			// "----pollsize=" + size());
+//
+//			do {
+//
+//				if (mDownloadingTasks.size() >= DownloadManagerConfig.MAX_CONCURRENT_COUNT)
+//					break;
+//
+//				task = super.poll();
+//
+//			} while (false);
+//
+//			return task;
+//		}
+//	}
 
-		private static final long serialVersionUID = 4491199220015175982L;
-
-		public DownloadTask poll() {
-
-			DownloadTask task = null;
-			
-			Log.e(TAG, "---poll---cursize=" + mDownloadingTasks.size() + "----pollsize=" + size());
-			
-			
-			while (mDownloadingTasks.size() >= DownloadManagerConfig.MAX_CONCURRENT_COUNT
-					|| (task = super.poll()) == null) {
-				try {
-					Thread.sleep(1000); // sleep
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
-			}
-			
-			
-			return task;
-		}
-
-		public DownloadTask get(int position) {
-
-			if (position >= size()) {
-				return null;
-			}
-
-			return super.get(position);
-		}
+	private void notifyTask(NotifyAction action, final DownloadTask task,
+			final Object param) {
+		mNotifyHdlr.post(new NotifyRunnable(action, task, param));
 	}
 
-	private void notifyTask(NotifyAction action, final DownloadTask task,final Object param) {
-		mNotifyHdlr.post(new NotifyRunnable(action, task,param));
-	}
-	
 	private void notifyTask(NotifyAction action, final DownloadTask task) {
-		notifyTask(action,task,null);
+		notifyTask(action, task, null);
 	}
 
 	class NotifyRunnable implements Runnable {
@@ -584,7 +606,8 @@ public class DownloadManager extends Thread {
 		private DownloadTask mTask;
 		private Object mParam;
 
-		NotifyRunnable(NotifyAction action, final DownloadTask task,final Object param) {
+		NotifyRunnable(NotifyAction action, final DownloadTask task,
+				final Object param) {
 			mAction = action;
 			mTask = task;
 			mParam = param;
@@ -636,8 +659,8 @@ public class DownloadManager extends Thread {
 		public void onTaskDone(DownloadTask task);
 
 		public void onTaskDeleted(DownloadTask task);
-		
-		public void onTaskError(DownloadTask task,Throwable error);
+
+		public void onTaskError(DownloadTask task, Throwable error);
 	}
 
 }

@@ -40,15 +40,15 @@ public class MainActivity extends Activity implements OnClickListener,DownloadMa
 	
 	private static void initDownloadInfos(){
 		demoUrls = new ArrayList<DownloadInfo>();
-		demoUrls.add(new DownloadInfo("天天动听","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/8/14/5818_ef11076a-5685-4ad6-893d-98c78705c4ea.apk"));
-		demoUrls.add(new DownloadInfo("咪咕音乐播放器","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/8/8/461977_0ee9139d-f62c-415e-96d9-a8874df5ba10.apk"));
-		demoUrls.add(new DownloadInfo("百度手机卫士","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/8/19/4780_5b3a045e-7aad-4934-a334-5be74acc7903.apk"));
+		demoUrls.add(new DownloadInfo("消灭星星2粉碎糖果","http://d1.apk8.com:8020/youxi/CrazyCandy_MMSMS_FREE_4_6_300004538018_3003956797.apk"));
+		demoUrls.add(new DownloadInfo("火箭飞人","http://d.apk8.com:8020/CPS/JPJ-1366-paid_v1.3.7.5_s1.5.2-001100_AP0S0N10000.apk"));
+		demoUrls.add(new DownloadInfo("手机QQ 官网版","http://d1.apk8.com:8020/soft/QQ5.0.0.apk"));
 		demoUrls.add(new DownloadInfo("淘宝","http://cdn2.down.apk.gfan.com/asdf/Pfiles/2014/7/17/11906_1e46fbac-b859-44f4-94ae-28eb0dc927b9.apk"));
-		demoUrls.add(new DownloadInfo("QQ空间","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/8/14/5512_50b4398c-1582-4055-a500-232a2de9247c.apk"));
-		demoUrls.add(new DownloadInfo("有道词典","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/7/22/4354_440f592f-850a-4e5e-9360-0c8e5df1ee2b.apk"));
+		demoUrls.add(new DownloadInfo("京东商城","http://d1.apk8.com:8020/soft/%E4%BA%AC%E4%B8%9C%E5%95%86%E5%9F%8E%E5%AE%98%E7%BD%91%E7%89%88.apk.apk"));
+		demoUrls.add(new DownloadInfo("爱奇艺视频","http://d1.apk8.com:8020/soft/%E7%88%B1%E5%A5%87%E8%89%BA%E8%A7%86%E9%A2%91.apk"));
 		demoUrls.add(new DownloadInfo("美图秀秀","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/8/7/92460_39a2bfda-a7ad-4e6d-9f6f-7da833160139.apk"));
 		demoUrls.add(new DownloadInfo("PPTV网络电视","http://cdn2.down.apk.gfan.com/asdf/Pfiles/2014/8/15/171337_74600efe-7e30-45bd-86ea-903ce17ed258.apk"));
-		demoUrls.add(new DownloadInfo("搜狐视频","http://cdn6.down.apk.gfan.com/asdf/Pfiles/2014/8/19/154682_3617ad4d-a3db-4e35-812f-e7aed3bea4d5.apk"));
+		demoUrls.add(new DownloadInfo("讯飞语音输入法","http://d1.apk8.com:8020/soft/%E8%AE%AF%E9%A3%9E%E8%BE%93%E5%85%A5%E6%B3%95.apk"));
 	}
 	
 	static{

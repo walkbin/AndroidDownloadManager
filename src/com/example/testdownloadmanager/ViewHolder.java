@@ -5,6 +5,7 @@ import java.util.HashMap;
 import com.pplive.tvmarket.dlmgr.DownloadManagerHelper;
 import com.pplive.tvmarket.dlmgr.DownloadTask;
 import com.pplive.tvmarket.dlmgr.data.DownloadTaskData;
+import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
 
 import android.text.TextUtils;
 import android.view.View;
@@ -59,7 +60,7 @@ public class ViewHolder {
 				DownloadManagerHelper.speed(task.getDownloadSpeed()));
 		item.put(KEY_PROGRESS, task.getDownloadPercent() + "");
 		item.put(KEY_IS_PAUSED,
-				(task.getData().status == DownloadTaskData.PAUSED) + "");
+				(task.getData().status == DownloadStatus.PAUSED) + "");
 		item.put(KEY_SIZE, DownloadManagerHelper.size(task.getDownloadSize())
 				+ "/" + DownloadManagerHelper.size(task.getTotalSize()));
 	}

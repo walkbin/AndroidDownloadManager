@@ -4,19 +4,17 @@ import com.pplive.tvmarket.dlmgr.DownloadTaskParam;
 
 public final class DownloadTaskData {
 
-	public static final int PREPARE = 1;
-	public static final int DOWNLOADING = 2;
-	public static final int PAUSED = 3;
-	public static final int DOWNLOADFAIL = 4;
-	public static final int DOWNLOADED = 5;
+	public static enum DownloadStatus {
+		WAITING, PREPARE, DOWNLOADING, PAUSED, SUSPEND, FAILED, DONE
+	}
 
 	public String url;
 	public DownloadTaskParam params;
 	public long totalSize;
-	public int status;// 状态
+	public DownloadStatus status;// 状态
 	public long createTime;
-	
-	public DownloadTaskData(){
+
+	public DownloadTaskData() {
 		params = new DownloadTaskParam();
 	}
 
@@ -38,8 +36,8 @@ public final class DownloadTaskData {
 		else
 			return null;
 	}
-	
-	public void addParam(String key,String value){
+
+	public void addParam(String key, String value) {
 		if (params != null)
 			params.addParam(key, value);
 	}

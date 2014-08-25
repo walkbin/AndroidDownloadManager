@@ -12,13 +12,14 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.pplive.tvmarket.dlmgr.DownloadManagerConfig;
+import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
 
-public class DownloadOpenHelper extends SQLiteOpenHelper {
+public class DownloadDBHelper extends SQLiteOpenHelper {
 
 	private static final String TABLE_DOWNLOAD_TASK = "download_task";
 	private static final int DATABASE_VERSION = 1;
 
-	public DownloadOpenHelper(Context context) {
+	public DownloadDBHelper(Context context) {
 		super(context, DownloadManagerConfig.DB_FILE, null, DATABASE_VERSION);
 	}
 
@@ -186,7 +187,7 @@ public class DownloadOpenHelper extends SQLiteOpenHelper {
 				ContentValues values = new ContentValues();
 				values.put("param", info.params.tranToString());
 				values.put("totalSize", info.totalSize);
-				values.put("status", info.status);
+				values.put("status", info.status.ordinal());
 				String whereClause = "url=?";
 				String[] whereArgs = { findInfo.url };
 				db.update(getTableName(), values, whereClause, whereArgs);
@@ -203,7 +204,7 @@ public class DownloadOpenHelper extends SQLiteOpenHelper {
 		info.url = cursor.getString(cursor.getColumnIndex("url"));
 		String paramStr = cursor.getString(cursor.getColumnIndex("param"));
 		info.params.restoreFromString(paramStr);
-		info.status = cursor.getInt(cursor.getColumnIndex("status"));
+		info.status = DownloadStatus.values()[cursor.getInt(cursor.getColumnIndex("status"))];
 		info.createTime = cursor.getLong(cursor.getColumnIndex("createTime"));
 		return info;
 	}

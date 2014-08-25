@@ -12,6 +12,8 @@ public class DownloadManagerConfig {
 	/**同时下载的任务数*/
 	public static final int MAX_CONCURRENT_COUNT = 3;
 	
+	public static final int GET_WORK_PERIOD = 1000;//ms
+	
 	/**下载文件的存放的目录名*/
 	public static final String DIR_DOWNLOAD = "testtest";
 
