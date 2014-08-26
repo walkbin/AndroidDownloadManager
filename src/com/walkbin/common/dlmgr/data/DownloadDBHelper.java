@@ -1,4 +1,4 @@
-package com.pplive.tvmarket.dlmgr.data;
+package com.walkbin.common.dlmgr.data;
 
 import java.util.ArrayList;
 
@@ -11,8 +11,8 @@ import android.database.sqlite.SQLiteOpenHelper;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.pplive.tvmarket.dlmgr.DownloadManagerConfig;
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.DownloadManagerConfig;
+import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
 
 public class DownloadDBHelper extends SQLiteOpenHelper {
 

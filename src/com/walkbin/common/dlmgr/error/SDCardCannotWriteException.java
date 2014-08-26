@@ -1,5 +1,5 @@
 
-package com.pplive.tvmarket.dlmgr.error;
+package com.walkbin.common.dlmgr.error;
 
 public class SDCardCannotWriteException extends DownloadException {
 

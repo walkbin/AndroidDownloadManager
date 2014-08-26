@@ -1,5 +1,5 @@
 
-package com.pplive.tvmarket.dlmgr.error;
+package com.walkbin.common.dlmgr.error;
 
 public class DownloadException extends Exception {
     private static final long serialVersionUID = 1L;

@@ -1,4 +1,4 @@
-package com.pplive.tvmarket.dlmgr;
+package com.walkbin.common.dlmgr;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -15,11 +15,11 @@ import android.accounts.NetworkErrorException;
 import android.content.Context;
 import android.util.Log;
 
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData;
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
-import com.pplive.tvmarket.dlmgr.error.FileAlreadyExistException;
-import com.pplive.tvmarket.dlmgr.error.NoMemoryException;
-import com.pplive.tvmarket.dlmgr.http.AndroidHttpClient;
+import com.walkbin.common.dlmgr.data.DownloadTaskData;
+import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.error.FileAlreadyExistException;
+import com.walkbin.common.dlmgr.error.NoMemoryException;
+import com.walkbin.common.dlmgr.http.AndroidHttpClient;
 
 public class DownloadTask implements Runnable {
 
@@ -40,7 +40,7 @@ public class DownloadTask implements Runnable {
 	private long mPreviousTime;
 	private long mTotalTime;
 	private Throwable mError = null;
-	private boolean mInterrupt = false;
+	private boolean mCanceled = false;
 
 	private final class ProgressReportingRandomAccessFile extends
 			RandomAccessFile {
@@ -89,12 +89,16 @@ public class DownloadTask implements Runnable {
 		return mData;
 	}
 
+	public DownloadStatus getStatus() {
+		return mData.status;
+	}
+
 	public String getTitle() {
 		return mData.getParam("title");
 	}
 
 	public boolean isInterrupt() {
-		return mInterrupt;
+		return mCanceled;
 	}
 
 	public long getDownloadPercent() {
@@ -168,14 +172,17 @@ public class DownloadTask implements Runnable {
 	public void publishProgress(Integer... progress) {
 		onProgressUpdate(progress);
 	}
-	
-	public void cancel(){
-		mInterrupt = true;
+
+	public void cancel() {
+		mCanceled = true;
 	}
 
 	// @Override
 	protected void onProgressUpdate(Integer... progress) {
 
+		if(isInterrupt())
+			return;
+		
 		if (progress.length > 1) {
 			mData.totalSize = progress[1];
 			if (mData.totalSize == -1) {
@@ -195,40 +202,6 @@ public class DownloadTask implements Runnable {
 		}
 	}
 
-//	@Override
-//	protected void onPostExecute(Long result) {
-//
-//		if (DownloadManagerConfig.DEBUG) {
-//			Log.e(TAG, "--" + getTitle() + "----onPostExecute-----");
-//		}
-//
-//		this.mContext = null;
-//		if (result == -1 || mInterrupt || mError != null) {
-//			if (DownloadManagerConfig.DEBUG && mError != null) {
-//				Log.e(TAG, "Download failed." + mError.getMessage());
-//			}
-//			mData.status = DownloadStatus.FAILED;
-//			if (mListener != null) {
-//				mListener.onError(this, mError);
-//			}
-//			return;
-//		}
-//		// finish download
-//		mData.status = DownloadStatus.DONE;
-//		mTempFile.renameTo(mFile);
-//		if (mListener != null)
-//			mListener.onFinished(this);
-//	}
-
-//	@Override
-//	public void onCancelled() {
-//		if (DownloadManagerConfig.DEBUG) {
-//			Log.e(TAG, "--" + getTitle() + "----onCancelled-----");
-//		}
-//		super.onCancelled();
-//		mInterrupt = true;
-//	}
-
 	private AndroidHttpClient mClient;
 	private HttpGet mHttpGet;
 	private HttpResponse mResponse;
@@ -241,16 +214,10 @@ public class DownloadTask implements Runnable {
 					+ mData.totalSize);
 		}
 
-		/*
-		 * check net work
-		 */
 		if (!DownloadManagerHelper.isNetworkAvailable(mContext)) {
 			throw new NetworkErrorException("Network blocked.");
 		}
 
-		/*
-		 * check file length
-		 */
 		mClient = AndroidHttpClient.newInstance(TAG);
 		mHttpGet = new HttpGet(mData.url);
 		mResponse = mClient.execute(mHttpGet);
@@ -282,9 +249,6 @@ public class DownloadTask implements Runnable {
 			}
 		}
 
-		/*
-		 * check memory
-		 */
 		long storage = DownloadManagerHelper.getAvailableStorage();
 		if (DownloadManagerConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "---storage:" + storage
@@ -295,9 +259,6 @@ public class DownloadTask implements Runnable {
 			throw new NoMemoryException("SD card no memory.");
 		}
 
-		/*
-		 * start download
-		 */
 		mOutputStream = new ProgressReportingRandomAccessFile(mTempFile, "rw");
 
 		publishProgress(0, (int) mData.totalSize);
@@ -306,7 +267,7 @@ public class DownloadTask implements Runnable {
 		int bytesCopied = copy(input, mOutputStream);
 
 		if ((mPreviousFileSize + bytesCopied) != mData.totalSize
-				&& mData.totalSize != -1 && !mInterrupt) {
+				&& mData.totalSize != -1 && !mCanceled) {
 			throw new IOException("Download incomplete: " + bytesCopied
 					+ " != " + mData.totalSize);
 		}
@@ -342,20 +303,14 @@ public class DownloadTask implements Runnable {
 
 			out.seek(out.length());
 
-			while (!mInterrupt) {
+			while (!mCanceled) {
 				n = in.read(buffer, 0, buffer.length);
 				if (n == -1) {
 					break;
 				}
 				out.write(buffer, 0, n);
 				count += n;
-				// if (DownloadManagerConfig.DEBUG) {
-				// Log.e(TAG, "--" + getTitle() + "---copying----count=" +
-				// count);
-				// }
-				/*
-				 * check network
-				 */
+
 				if (!DownloadManagerHelper.isNetworkAvailable(mContext)) {
 					throw new NetworkErrorException("Network blocked.");
 				}
@@ -385,21 +340,6 @@ public class DownloadTask implements Runnable {
 		}
 		return count;
 
-	}
-
-	public interface DownloadTaskListener {
-
-		public void onUpdate(DownloadTask task);
-
-		public void onFinished(DownloadTask task);
-
-		// 准备开始下载
-		public void onPre(DownloadTask task);
-
-		// 成功获取到总大小
-		// public void onBegin(DownloadTask task);
-
-		public void onError(DownloadTask task, Throwable error);
 	}
 
 	@Override
@@ -440,7 +380,7 @@ public class DownloadTask implements Runnable {
 		}
 
 		this.mContext = null;
-		if (result == -1 || mInterrupt || mError != null) {
+		if (result == -1 || mCanceled || mError != null) {
 			if (DownloadManagerConfig.DEBUG && mError != null) {
 				Log.e(TAG, "Download failed." + mError.getMessage());
 			}
@@ -454,7 +394,21 @@ public class DownloadTask implements Runnable {
 			if (mListener != null)
 				mListener.onFinished(this);
 		}
+	}
 
+	public interface DownloadTaskListener {
+
+		public void onUpdate(DownloadTask task);
+
+		public void onFinished(DownloadTask task);
+
+		// 准备开始下载
+		public void onPre(DownloadTask task);
+
+		// 成功获取到总大小
+		// public void onBegin(DownloadTask task);
+
+		public void onError(DownloadTask task, Throwable error);
 	}
 
 }

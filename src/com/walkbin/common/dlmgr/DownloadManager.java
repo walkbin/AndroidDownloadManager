@@ -1,4 +1,4 @@
-package com.pplive.tvmarket.dlmgr;
+package com.walkbin.common.dlmgr;
 
 import android.content.Context;
 import android.os.Handler;
@@ -10,37 +10,34 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 
-import com.pplive.tvmarket.dlmgr.data.DownloadDBHelper;
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData;
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
-import com.pplive.tvmarket.dlmgr.error.SDCardCannotWriteException;
-import com.pplive.tvmarket.dlmgr.error.SDCardNotFoundException;
-import com.pplive.tvmarket.dlmgr.error.TaskAlreadyExistException;
-import com.pplive.tvmarket.dlmgr.error.TaskFullException;
+import com.walkbin.common.dlmgr.data.DownloadDBHelper;
+import com.walkbin.common.dlmgr.data.DownloadTaskData;
+import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.error.SDCardCannotWriteException;
+import com.walkbin.common.dlmgr.error.SDCardNotFoundException;
+import com.walkbin.common.dlmgr.error.TaskAlreadyExistException;
 
 public class DownloadManager {
 
 	private Context mContext;
 
-	private BlockingQueue<Runnable> mTaskQueue;
 	private List<DownloadTask> mDownloadingTasks;
 	private List<DownloadTask> mPausingTasks;
 	private List<DownloadTaskData> mDownloadedTasks;
 	private DownloadDBHelper mDBHelper;
 	private List<DownloadManagerListener> mListeners;
 	private ExecutorService mTaskPool;
+	private TaskBufferQueue mTaskBufferQueue;
 
 	static final String TAG = "DownloadManager";
 
-	enum NotifyAction {
-		NA_ADD, NA_BEGIN, NA_UPDATE, NA_DONE, NA_DELETE, NA_ERROR
+	public static enum NotifyAction {
+		NA_ADD, NA_BEGIN, NA_UPDATE, NA_SUSPEND, NA_DONE, NA_DELETE, NA_ERROR
 	}
 
 	/** 专用于更新db数据的工作线程 */
@@ -63,16 +60,15 @@ public class DownloadManager {
 	public DownloadManager(Context context) {
 
 		mContext = context;
-		mTaskQueue = new LinkedBlockingQueue<Runnable>();
 		mDownloadingTasks = new ArrayList<DownloadTask>();
 		mPausingTasks = new ArrayList<DownloadTask>();
 		mDownloadedTasks = new ArrayList<DownloadTaskData>();
 		mDBHelper = new DownloadDBHelper(mContext);
 		mNotifyHdlr = new Handler(mContext.getMainLooper());
 		mListeners = new ArrayList<DownloadManager.DownloadManagerListener>();
-		mTaskPool = new ThreadPoolExecutor(
-				DownloadManagerConfig.MAX_CONCURRENT_COUNT, 10, 20L,
-				TimeUnit.MILLISECONDS, mTaskQueue);
+		mTaskPool = Executors
+				.newFixedThreadPool(DownloadManagerConfig.MAX_CONCURRENT_COUNT);
+		mTaskBufferQueue = new TaskBufferQueue();
 	}
 
 	public void startManage() {
@@ -91,8 +87,19 @@ public class DownloadManager {
 		return isRunning;
 	}
 
-	public void addTask(DownloadTaskData data) throws SDCardNotFoundException,
-			SDCardCannotWriteException, TaskFullException,
+	public DownloadTask addTaskSafely(DownloadTaskData data) {
+		try {
+			return addTask(data);
+		} catch (Exception e) {
+			if (DownloadManagerConfig.DEBUG) {
+				e.printStackTrace();
+			}
+			return null;
+		}
+	}
+
+	public DownloadTask addTask(DownloadTaskData data)
+			throws SDCardNotFoundException, SDCardCannotWriteException,
 			MalformedURLException, TaskAlreadyExistException {
 
 		if (hasTask(data.url)) {
@@ -107,91 +114,27 @@ public class DownloadManager {
 			throw new SDCardCannotWriteException("sd card cannot be written");
 		}
 
-		if (getTotalTaskCount() >= DownloadManagerConfig.MAX_TASK_COUNT) {
-			throw new TaskFullException("download task is full");
-		}
-
 		DownloadTask task = newDownloadTask(data);
 		if (task.getFile() == null) {
 			throw new MalformedURLException();
 		}
 
 		addTask(task);
+		return task;
 	}
 
-	public void addTaskSafely(DownloadTaskData data) {
-		try {
-			addTask(data);
-		} catch (Exception e) {
-			if (DownloadManagerConfig.DEBUG) {
-				e.printStackTrace();
-			}
-		}
-	}
-
-	private void addTask(DownloadTask task) {
-
+	private synchronized void addTask(DownloadTask task) {
 		task.getData().status = DownloadStatus.WAITING;
-		mTaskPool.submit(task);
+		mTaskBufferQueue.offer(task);
 		notifyTask(NotifyAction.NA_ADD, task);
 		syncDBUpdate(task.getData());
-	}
 
-	// public void reBroadcastAddAllTask() {
-	//
-	// DownloadTask task;
-	// for (int i = 0; i < mDownloadingTasks.size(); i++) {
-	// task = mDownloadingTasks.get(i);
-	// broadcastAddTask(task.getUrl(), task.isInterrupt());
-	// }
-	// for (int i = 0; i < mTaskQueue.size(); i++) {
-	// task = mTaskQueue.get(i);
-	// broadcastAddTask(task.getUrl());
-	// }
-	// for (int i = 0; i < mPausingTasks.size(); i++) {
-	// task = mPausingTasks.get(i);
-	// broadcastAddTask(task.getUrl());
-	// }
-	// }
+		tryPollTask();
+	}
 
 	public boolean hasTask(String url) {
-
-		DownloadTask task;
-		for (int i = 0; i < mDownloadingTasks.size(); i++) {
-			task = mDownloadingTasks.get(i);
-			if (task.getUrl().equals(url)) {
-				return true;
-			}
-		}
-
-		Iterator<Runnable> it = mTaskQueue.iterator();
-		while (it.hasNext()) {
-			task = (DownloadTask) it.next();
-			if (task.getUrl().equals(url)) {
-				return true;
-			}
-		}
-
-		for (int i = 0; i < mPausingTasks.size(); i++) {
-			task = mPausingTasks.get(i);
-			if (task.getUrl().equals(url)) {
-				return true;
-			}
-		}
-
-		return false;
+		return getTask(url) != null;
 	}
-
-	// public DownloadTask getTask(int position) {
-	//
-	// int downloadSize = getDownloadingTaskCount();
-	//
-	// if (position >= downloadSize) {
-	// return mTaskQueue.get(position - downloadSize);
-	// } else {
-	// return mDownloadingTasks.get(position);
-	// }
-	// }
 
 	public DownloadTask getTask(String url) {
 
@@ -201,29 +144,29 @@ public class DownloadManager {
 		while (itTask.hasNext()) {
 			task = (DownloadTask) itTask.next();
 			if (task.getUrl().equals(url))
-				break;
+				return task;
+		}
+
+		itTask = mTaskBufferQueue.iterator();
+		while (itTask.hasNext()) {
+			task = (DownloadTask) itTask.next();
+			if (task.getUrl().equals(url)) {
+				return task;
+			}
 		}
 
 		itTask = mPausingTasks.iterator();
 		while (itTask.hasNext()) {
 			task = (DownloadTask) itTask.next();
 			if (task.getUrl().equals(url))
-				break;
+				return task;
 		}
 
-		Iterator<Runnable> it = mTaskQueue.iterator();
-		while (it.hasNext()) {
-			task = (DownloadTask) it.next();
-			if (task.getUrl().equals(url)) {
-				break;
-			}
-		}
-
-		return task;
+		return null;
 	}
 
 	public int getQueueTaskCount() {
-		return mTaskQueue.size();
+		return mTaskBufferQueue.size();
 	}
 
 	public int getDownloadingTaskCount() {
@@ -240,7 +183,7 @@ public class DownloadManager {
 	}
 
 	/** 恢复任务 */
-	public void checkUncompleteTasks() {
+	public synchronized void checkUncompleteTasks() {
 
 		ArrayList<DownloadTaskData> taskDatas = mDBHelper.findAllTaskData();
 
@@ -287,15 +230,15 @@ public class DownloadManager {
 		}
 	}
 
-	public void addListener(DownloadManagerListener l) {
+	public synchronized void addListener(DownloadManagerListener l) {
 		mListeners.add(l);
 	}
 
-	public void deleteListener(DownloadManagerListener l) {
+	public synchronized void deleteListener(DownloadManagerListener l) {
 		mListeners.remove(l);
 	}
 
-	public void deleteTask(String url) {
+	public synchronized void deleteTask(String url) {
 
 		DownloadTask task;
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
@@ -304,17 +247,15 @@ public class DownloadManager {
 			task = itTask.next();
 			if (task != null && task.getUrl().equals(url)) {
 				task.cancel();
-				mDownloadingTasks.remove(task);
 				notifyTask(NotifyAction.NA_DELETE, task);
 				itTask.remove();
 			}
 		}
 
-		Iterator<Runnable> itRun = mTaskQueue.iterator();
-		while (itRun.hasNext()) {
-			task = (DownloadTask) itRun.next();
+		itTask = mTaskBufferQueue.iterator();
+		while (itTask.hasNext()) {
+			task = (DownloadTask) itTask.next();
 			if (task != null && task.getUrl().equals(url)) {
-				mTaskQueue.remove(task);
 				notifyTask(NotifyAction.NA_DELETE, task);
 				itTask.remove();
 			}
@@ -324,7 +265,6 @@ public class DownloadManager {
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task != null && task.getUrl().equals(url)) {
-				mPausingTasks.remove(task);
 				notifyTask(NotifyAction.NA_DELETE, task);
 				itTask.remove();
 			}
@@ -339,10 +279,12 @@ public class DownloadManager {
 			file.delete();
 
 		syncDBDelete(url);
+
+		tryPollTask();
 	}
 
 	/** 清除当前所有的下载任务 */
-	public void deleteAllTask() {
+	public synchronized void deleteAllTask() {
 		DownloadTask task;
 
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
@@ -383,9 +325,9 @@ public class DownloadManager {
 			itTask.remove();
 		}
 
-		Iterator<Runnable> itRun = mTaskQueue.iterator();
-		while (itRun.hasNext()) {
-			task = (DownloadTask) itRun.next();
+		itTask = mTaskBufferQueue.iterator();
+		while (itTask.hasNext()) {
+			task = (DownloadTask) itTask.next();
 			notifyTask(NotifyAction.NA_DELETE, task);
 			String url = task.getUrl();
 
@@ -402,50 +344,77 @@ public class DownloadManager {
 		}
 	}
 
-	public void pauseTask(String url) {
+	public synchronized void pauseTask(String url) {
 
-		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
-		DownloadTask task;
-		while (itTask.hasNext()) {
-			task = itTask.next();
-			if (task.getUrl().equals(url)) {
-				task.cancel();
+		DownloadTask task = getTask(url);
 
-				DownloadTaskData data = task.getData();
-				data.status = DownloadStatus.PAUSED;
-				task = newDownloadTask(data.copy());
-				mPausingTasks.add(task);
-				syncDBUpdate(data);
-				itTask.remove();
-			}
-		}
-	}
+		if (task == null)
+			return;
 
-	public void pauseAllTask() {
+		DownloadTaskData data = task.getData();
+		boolean needDeal = false;
 
-		DownloadTask task;
-		Iterator<Runnable> itRun = mTaskQueue.iterator();
-
-		while (itRun.hasNext()) {
-			task = (DownloadTask) itRun.next();
-			mPausingTasks.add(task);
-			itRun.remove();
-		}
-
-		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
-		while (itTask.hasNext()) {
-			task = itTask.next();
+		switch (task.getStatus()) {
+		case DOWNLOADING:
+		case PREPARE:
 			task.cancel();
-			DownloadTaskData data = task.getData();
+			mDownloadingTasks.remove(task);
 			data.status = DownloadStatus.PAUSED;
 			task = newDownloadTask(data.copy());
+			needDeal = true;
+			break;
+		case WAITING:
+			mTaskBufferQueue.remove(task);
+			data.status = DownloadStatus.PAUSED;
+			needDeal = true;
+			break;
+		default:
+			break;
+
+		}
+
+		if (needDeal) {
 			mPausingTasks.add(task);
 			syncDBUpdate(data);
-			itTask.remove();
 		}
+
+		tryPollTask();
 	}
 
-	public void continueTask(String url) {
+	public synchronized void pauseAllTask() {
+
+		sLogicHdlr.post(new Runnable() {
+
+			@Override
+			public void run() {
+
+				DownloadTask task;
+
+				Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
+				while (itTask.hasNext()) {
+					task = itTask.next();
+					task.cancel();
+					DownloadTaskData data = task.getData();
+					data.status = DownloadStatus.PAUSED;
+					task = newDownloadTask(data.copy());
+					mPausingTasks.add(task);
+					syncDBUpdate(data);
+				}
+				mDownloadingTasks.clear();
+
+				itTask = mTaskBufferQueue.iterator();
+				while (itTask.hasNext()) {
+					task = itTask.next();
+					task.getData().status = DownloadStatus.PAUSED;
+					mPausingTasks.add(task);
+					syncDBUpdate(task.getData());
+				}
+				mTaskBufferQueue.clear();
+			}
+		});
+	}
+
+	public synchronized void continueTask(String url) {
 
 		DownloadTask task;
 		Iterator<DownloadTask> itTask = mPausingTasks.iterator();
@@ -453,26 +422,35 @@ public class DownloadManager {
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task.getUrl().equals(url)) {
-				task.getData().status = DownloadStatus.PREPARE;
-				mTaskQueue.offer(task);
-				syncDBUpdate(task.getData());
+				addTask(task);
 				itTask.remove();
+				break;
 			}
 		}
 	}
 
-	public void continueAllTask() {
+	public synchronized void continueAllTask() {
 
-		DownloadTask task;
-		Iterator<DownloadTask> itTask = mPausingTasks.iterator();
+		sLogicHdlr.post(new Runnable() {
 
-		while (itTask.hasNext()) {
-			task = itTask.next();
-			task.getData().status = DownloadStatus.PREPARE;
-			mTaskQueue.offer(task);
-			syncDBUpdate(task.getData());
-			itTask.remove();
-		}
+			@Override
+			public void run() {
+				DownloadTask task;
+				Iterator<DownloadTask> itTask = mPausingTasks.iterator();
+
+				while (itTask.hasNext()) {
+					task = itTask.next();
+					addTask(task);
+				}
+
+				mPausingTasks.clear();
+			}
+		});
+
+	}
+
+	private void tryPollTask() {
+		mTaskBufferQueue.poll();
 	}
 
 	private void completeTask(DownloadTask task) {
@@ -567,29 +545,30 @@ public class DownloadManager {
 	/**
 	 * A obstructed task queue
 	 */
-//	private class TaskQueue extends LinkedBlockingQueue<DownloadTask> {
-//
-//		private static final long serialVersionUID = 4491199220015175982L;
-//
-//		public DownloadTask poll() {
-//
-//			DownloadTask task = null;
-//
-//			// Log.e(TAG, "---poll---cursize=" + mDownloadingTasks.size() +
-//			// "----pollsize=" + size());
-//
-//			do {
-//
-//				if (mDownloadingTasks.size() >= DownloadManagerConfig.MAX_CONCURRENT_COUNT)
-//					break;
-//
-//				task = super.poll();
-//
-//			} while (false);
-//
-//			return task;
-//		}
-//	}
+	// private class TaskQueue extends LinkedBlockingQueue<DownloadTask> {
+	//
+	// private static final long serialVersionUID = 4491199220015175982L;
+	//
+	// public DownloadTask poll() {
+	//
+	// DownloadTask task = null;
+	//
+	// // Log.e(TAG, "---poll---cursize=" + mDownloadingTasks.size() +
+	// // "----pollsize=" + size());
+	//
+	// do {
+	//
+	// if (mDownloadingTasks.size() >=
+	// DownloadManagerConfig.MAX_CONCURRENT_COUNT)
+	// break;
+	//
+	// task = super.poll();
+	//
+	// } while (false);
+	//
+	// return task;
+	// }
+	// }
 
 	private void notifyTask(NotifyAction action, final DownloadTask task,
 			final Object param) {
@@ -647,6 +626,44 @@ public class DownloadManager {
 			}
 		}
 
+	}
+
+	/**
+	 * A obstructed task queue
+	 */
+	private class TaskBufferQueue extends LinkedList<DownloadTask> {
+
+		/**
+		 * 
+		 */
+		private static final long serialVersionUID = 7876293110595425660L;
+
+		public DownloadTask poll() {
+
+			DownloadTask task = null;
+
+			do {
+				if (mDownloadingTasks.size() >= DownloadManagerConfig.MAX_CONCURRENT_COUNT)
+					break;
+
+				task = super.poll();
+				if (task != null) {
+					mTaskPool.submit(task);
+					mDownloadingTasks.add(task);
+				}
+
+			} while (false);
+
+			return task;
+		}
+
+		public DownloadTask get(int position) {
+
+			if (position >= size()) {
+				return null;
+			}
+			return get(position);
+		}
 	}
 
 	public interface DownloadManagerListener {

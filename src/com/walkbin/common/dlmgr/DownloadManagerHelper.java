@@ -1,4 +1,4 @@
-package com.pplive.tvmarket.dlmgr;
+package com.walkbin.common.dlmgr;
 
 import java.io.File;
 import java.net.MalformedURLException;

@@ -2,10 +2,9 @@ package com.example.testdownloadmanager;
 
 import java.util.HashMap;
 
-import com.pplive.tvmarket.dlmgr.DownloadManagerHelper;
-import com.pplive.tvmarket.dlmgr.DownloadTask;
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData;
-import com.pplive.tvmarket.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.DownloadManagerHelper;
+import com.walkbin.common.dlmgr.DownloadTask;
+import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
 
 import android.text.TextUtils;
 import android.view.View;
@@ -65,7 +64,7 @@ public class ViewHolder {
 				+ "/" + DownloadManagerHelper.size(task.getTotalSize()));
 	}
 
-	public static HashMap<Integer, String> getItemDataMap(DownloadTask task) {
+	public static HashMap<Integer, String> createItemDataMap(DownloadTask task) {
 		HashMap<Integer, String> item = new HashMap<Integer, String>();
 		updateDataMap(item, task);
 		return item;
@@ -84,18 +83,14 @@ public class ViewHolder {
 				progressBar.setProgress(Integer.parseInt(progress));
 			}
 			if (Boolean.parseBoolean(item.get(KEY_IS_PAUSED))) {
-				onPause();
 				speedText.setText("已暂停");
+				pauseButton.setVisibility(View.GONE);
+				continueButton.setVisibility(View.VISIBLE);
 			} else {
 				speedText.setText(item.get(KEY_SPEED));
+				pauseButton.setVisibility(View.VISIBLE);
+				continueButton.setVisibility(View.GONE);
 			}
-		}
-	}
-
-	public void onPause() {
-		if (hasInited) {
-			pauseButton.setVisibility(View.GONE);
-			continueButton.setVisibility(View.VISIBLE);
 		}
 	}
 

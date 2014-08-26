@@ -1,6 +1,5 @@
-package com.pplive.tvmarket.dlmgr.data;
+package com.walkbin.common.dlmgr.data;
 
-import com.pplive.tvmarket.dlmgr.DownloadTaskParam;
 
 public final class DownloadTaskData {
 

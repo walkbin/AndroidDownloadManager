@@ -1,14 +1,14 @@
 
-package com.pplive.tvmarket.dlmgr.error;
+package com.walkbin.common.dlmgr.error;
 
-public class TaskAlreadyExistException extends DownloadException {
+public class NoMemoryException extends DownloadException {
 
     /**
      * 
      */
     private static final long serialVersionUID = 1L;
 
-    public TaskAlreadyExistException(String message) {
+    public NoMemoryException(String message) {
 
         super(message);
         // TODO Auto-generated constructor stub

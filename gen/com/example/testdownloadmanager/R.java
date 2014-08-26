@@ -30,11 +30,11 @@ public final class R {
         public static final int btn_add_all=0x7f080001;
         public static final int btn_continue=0x7f08000a;
         public static final int btn_delete=0x7f080007;
-        public static final int btn_delete_all=0x7f080004;
+        public static final int btn_delete_all=0x7f080002;
         public static final int btn_pause=0x7f080009;
         public static final int btn_pauseOrResume=0x7f080008;
-        public static final int btn_pause_all=0x7f080002;
-        public static final int btn_resume_all=0x7f080003;
+        public static final int btn_pause_all=0x7f080003;
+        public static final int btn_resume_all=0x7f080004;
         public static final int container=0x7f080000;
         public static final int download_list=0x7f080006;
         public static final int progress_bar=0x7f08000d;

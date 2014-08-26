@@ -1,4 +1,4 @@
-package com.pplive.tvmarket.dlmgr;
+package com.walkbin.common.dlmgr.data;
 
 import java.util.HashMap;
 import java.util.Iterator;

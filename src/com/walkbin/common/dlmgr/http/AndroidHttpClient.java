@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.pplive.tvmarket.dlmgr.http;
+package com.walkbin.common.dlmgr.http;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

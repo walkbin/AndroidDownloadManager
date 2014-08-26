@@ -1,4 +1,4 @@
-package com.pplive.tvmarket.dlmgr;
+package com.walkbin.common.dlmgr;
 
 import java.io.File;
 
@@ -7,8 +7,6 @@ import android.os.Environment;
 public class DownloadManagerConfig {
 
     public static final boolean DEBUG = true;
-	/**最多可以容纳的下载任务数*/
-	public static final int MAX_TASK_COUNT = 100;
 	/**同时下载的任务数*/
 	public static final int MAX_CONCURRENT_COUNT = 3;
 	
