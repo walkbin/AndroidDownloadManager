@@ -75,7 +75,7 @@ public class MainActivity extends Activity implements OnClickListener,
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
 
-		mDLMgr = new DownloadManager(this);
+		mDLMgr = DownloadManager.INSTANCE.setContext(this);
 		mDLMgr.startManage();
 
 		mDownloadListView = (ListView) findViewById(R.id.download_list);
@@ -100,6 +100,7 @@ public class MainActivity extends Activity implements OnClickListener,
 	@Override
 	protected void onDestroy() {
 
+		mDLMgr.deleteListener(this);
 		mDLMgr.close();
 		super.onDestroy();
 	}

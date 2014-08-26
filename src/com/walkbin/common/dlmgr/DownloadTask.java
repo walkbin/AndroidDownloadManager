@@ -130,6 +130,13 @@ public class DownloadTask implements Runnable {
 		return mListener;
 	}
 
+	public void syncContinueInfo() {
+		if (mTempFile != null && mTempFile.exists()) {
+			mPreviousFileSize = mTempFile.length();
+			mDownloadPercent = mPreviousFileSize * 100 / mData.totalSize;
+		}
+	}
+
 	// @Override
 	// protected void onPreExecute() {
 	//
@@ -180,9 +187,9 @@ public class DownloadTask implements Runnable {
 	// @Override
 	protected void onProgressUpdate(Integer... progress) {
 
-		if(isInterrupt())
+		if (isInterrupt())
 			return;
-		
+
 		if (progress.length > 1) {
 			mData.totalSize = progress[1];
 			if (mData.totalSize == -1) {

@@ -22,17 +22,18 @@ import com.walkbin.common.dlmgr.error.SDCardCannotWriteException;
 import com.walkbin.common.dlmgr.error.SDCardNotFoundException;
 import com.walkbin.common.dlmgr.error.TaskAlreadyExistException;
 
-public class DownloadManager {
+public enum DownloadManager {
 
-	private Context mContext;
-
+	INSTANCE;
+	
 	private List<DownloadTask> mDownloadingTasks;
 	private List<DownloadTask> mPausingTasks;
 	private List<DownloadTaskData> mDownloadedTasks;
 	private DownloadDBHelper mDBHelper;
 	private List<DownloadManagerListener> mListeners;
 	private ExecutorService mTaskPool;
-	private TaskBufferQueue mTaskBufferQueue;
+	private TaskBufferQueue mTaskBufferQueue;	
+	private Context mContext;
 
 	static final String TAG = "DownloadManager";
 
@@ -57,14 +58,17 @@ public class DownloadManager {
 
 	private Boolean isRunning = false;
 
-	public DownloadManager(Context context) {
-
+	public DownloadManager setContext(Context context){
 		mContext = context;
+		mDBHelper = new DownloadDBHelper(mContext);
+		return this;
+	}
+	
+	private DownloadManager() {
 		mDownloadingTasks = new ArrayList<DownloadTask>();
 		mPausingTasks = new ArrayList<DownloadTask>();
 		mDownloadedTasks = new ArrayList<DownloadTaskData>();
-		mDBHelper = new DownloadDBHelper(mContext);
-		mNotifyHdlr = new Handler(mContext.getMainLooper());
+		mNotifyHdlr = new Handler();
 		mListeners = new ArrayList<DownloadManager.DownloadManagerListener>();
 		mTaskPool = Executors
 				.newFixedThreadPool(DownloadManagerConfig.MAX_CONCURRENT_COUNT);
@@ -383,10 +387,10 @@ public class DownloadManager {
 
 	public synchronized void pauseAllTask() {
 
-		sLogicHdlr.post(new Runnable() {
-
-			@Override
-			public void run() {
+//		sLogicHdlr.post(new Runnable() {
+//
+//			@Override
+//			public void run() {
 
 				DownloadTask task;
 
@@ -410,8 +414,8 @@ public class DownloadManager {
 					syncDBUpdate(task.getData());
 				}
 				mTaskBufferQueue.clear();
-			}
-		});
+//			}
+//		});
 	}
 
 	public synchronized void continueTask(String url) {
@@ -422,6 +426,8 @@ public class DownloadManager {
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task.getUrl().equals(url)) {
+				
+				task.syncContinueInfo();
 				addTask(task);
 				itTask.remove();
 				break;
@@ -431,21 +437,22 @@ public class DownloadManager {
 
 	public synchronized void continueAllTask() {
 
-		sLogicHdlr.post(new Runnable() {
-
-			@Override
-			public void run() {
+//		sLogicHdlr.post(new Runnable() {
+//
+//			@Override
+//			public void run() {
 				DownloadTask task;
 				Iterator<DownloadTask> itTask = mPausingTasks.iterator();
 
 				while (itTask.hasNext()) {
 					task = itTask.next();
+					task.syncContinueInfo();
 					addTask(task);
 				}
 
 				mPausingTasks.clear();
-			}
-		});
+//			}
+//		});
 
 	}
 
