@@ -38,7 +38,7 @@ public enum DownloadManager {
 	static final String TAG = "DownloadManager";
 
 	public static enum NotifyAction {
-		NA_ADD, NA_BEGIN, NA_UPDATE, NA_SUSPEND, NA_DONE, NA_DELETE, NA_ERROR
+		NA_RECOVER, NA_ADD, NA_BEGIN, NA_UPDATE, NA_SUSPEND, NA_DONE, NA_DELETE, NA_ERROR
 	}
 
 	/** 专用于更新db数据的工作线程 */
@@ -78,17 +78,73 @@ public enum DownloadManager {
 	public void startManage() {
 		isRunning = true;
 		DownloadManagerHelper.mkdir();
-		checkUncompleteTasks();
+		initLocalTasks();
 	}
 
 	public void close() {
 		isRunning = false;
 		// pauseAllTask();
-		sLogicHdlr.removeCallbacksAndMessages(null);
+//		sLogicHdlr.removeCallbacksAndMessages(null);
 	}
 
 	public boolean isRunning() {
 		return isRunning;
+	}
+	
+	/** 初始加载任务 */
+	private void initLocalTasks() {
+
+		ArrayList<DownloadTaskData> taskDatas = mDBHelper.findAllTaskData();
+
+		DownloadTask task = null;
+		// 优先插入downloading的task
+		for (DownloadTaskData data : taskDatas) {
+			if (data.status == DownloadStatus.DOWNLOADING) {
+				task = addTaskSafely(data);
+				task.syncContinueInfo();
+				notifyTask(NotifyAction.NA_RECOVER, task);
+			}
+		}
+
+		boolean needAdd = false;
+		for (DownloadTaskData data : taskDatas) {
+
+			needAdd = false;
+			switch (data.status) {
+
+			case PREPARE:
+				task = addTaskSafely(data);
+				needAdd = true;
+				break;
+
+			case PAUSED:
+				task = createDownloadTask(data);
+				mPausingTasks.add(task);
+				needAdd = true;
+				break;
+
+			case DONE:
+				// 判断文件是否存在，不存在则忽略
+				File f = DownloadManagerHelper.getFile(data.url);
+				if (f != null && f.exists()) {
+					mDownloadedTasks.add(data);
+				}
+				break;
+			case FAILED:
+				break;
+			case SUSPEND:
+				break;
+			case WAITING:
+				break;
+			default:
+				break;
+			}
+
+			if (needAdd && task != null){
+				task.syncContinueInfo();
+				notifyTask(NotifyAction.NA_RECOVER, task);
+			}
+		}
 	}
 
 	public DownloadTask addTaskSafely(DownloadTaskData data) {
@@ -118,7 +174,7 @@ public enum DownloadManager {
 			throw new SDCardCannotWriteException("sd card cannot be written");
 		}
 
-		DownloadTask task = newDownloadTask(data);
+		DownloadTask task = createDownloadTask(data);
 		if (task.getFile() == null) {
 			throw new MalformedURLException();
 		}
@@ -201,54 +257,6 @@ public enum DownloadManager {
 				+ getPausingTaskCount();
 	}
 
-	/** 恢复任务 */
-	private void checkUncompleteTasks() {
-
-		ArrayList<DownloadTaskData> taskDatas = mDBHelper.findAllTaskData();
-
-		// 优先插入downloading的task
-		for (DownloadTaskData data : taskDatas) {
-			if (data.status == DownloadStatus.DOWNLOADING) {
-				addTaskSafely(data);
-			}
-		}
-
-		for (DownloadTaskData data : taskDatas) {
-
-			switch (data.status) {
-
-			case PREPARE:
-				addTaskSafely(data);
-				break;
-
-			case PAUSED:
-				DownloadTask task = newDownloadTask(data);
-				mPausingTasks.add(task);
-
-				break;
-
-			case DONE:
-				// 判断文件是否存在，不存在则忽略
-				File f = DownloadManagerHelper.getFile(data.url);
-				if (f != null && f.exists()) {
-					mDownloadedTasks.add(data);
-				}
-				break;
-			case DOWNLOADING:
-				break;
-			case FAILED:
-				break;
-			case SUSPEND:
-				break;
-			case WAITING:
-				break;
-			default:
-				break;
-			}
-
-		}
-	}
-
 	public synchronized void addListener(DownloadManagerListener l) {
 		mListeners.add(l);
 	}
@@ -326,10 +334,10 @@ public enum DownloadManager {
 		switch (task.getStatus()) {
 		case DOWNLOADING:
 		case PREPARE:
-			task.cancel();
+			task.pause();
 			mDownloadingTasks.remove(task);
 			data.status = DownloadStatus.PAUSED;
-			task = newDownloadTask(data.copy());
+			task = createDownloadTask(data.copy());
 			needDeal = true;
 			break;
 		case WAITING:
@@ -362,10 +370,10 @@ public enum DownloadManager {
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
 		while (itTask.hasNext()) {
 			task = itTask.next();
-			task.cancel();
+			task.pause();
 			DownloadTaskData data = task.getData();
 			data.status = DownloadStatus.PAUSED;
-			task = newDownloadTask(data.copy());
+			task = createDownloadTask(data.copy());
 			mPausingTasks.add(task);
 			syncDBUpdate(data);
 		}
@@ -458,14 +466,7 @@ public enum DownloadManager {
 		});
 	}
 
-	/**
-	 * Create a new download task with default config
-	 * 
-	 * @param url
-	 * @return
-	 * @throws MalformedURLException
-	 */
-	private DownloadTask newDownloadTask(DownloadTaskData data) {
+	private DownloadTask createDownloadTask(DownloadTaskData data) {
 
 		DownloadTask.DownloadTaskListener taskListener = new DownloadTask.DownloadTaskListener() {
 
@@ -511,38 +512,22 @@ public enum DownloadManager {
 				// completeTask(task);
 				// }
 			}
+
+			@Override
+			public void onCanceled(DownloadTask task) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void onPaused(DownloadTask task) {
+				// TODO Auto-generated method stub
+				
+			}
 		};
 		return new DownloadTask(mContext, data,
 				DownloadManagerConfig.FILE_ROOT, taskListener);
 	}
-
-	/**
-	 * A obstructed task queue
-	 */
-	// private class TaskQueue extends LinkedBlockingQueue<DownloadTask> {
-	//
-	// private static final long serialVersionUID = 4491199220015175982L;
-	//
-	// public DownloadTask poll() {
-	//
-	// DownloadTask task = null;
-	//
-	// // Log.e(TAG, "---poll---cursize=" + mDownloadingTasks.size() +
-	// // "----pollsize=" + size());
-	//
-	// do {
-	//
-	// if (mDownloadingTasks.size() >=
-	// DownloadManagerConfig.MAX_CONCURRENT_COUNT)
-	// break;
-	//
-	// task = super.poll();
-	//
-	// } while (false);
-	//
-	// return task;
-	// }
-	// }
 
 	private void notifyTask(NotifyAction action, final DownloadTask task,
 			final Object param) {
@@ -571,6 +556,9 @@ public enum DownloadManager {
 			for (DownloadManagerListener l : mListeners) {
 
 				switch (mAction) {
+				case NA_RECOVER:
+					l.onTaskRecovered(mTask);
+					break;
 				case NA_ADD:
 					Log.w(TAG, "---NA_ADD--" + mTask.getTitle());
 					l.onTaskAdded(mTask);
@@ -642,6 +630,9 @@ public enum DownloadManager {
 	}
 
 	public interface DownloadManagerListener {
+
+		public void onTaskRecovered(DownloadTask task);
+
 		public void onTaskAdded(DownloadTask task);
 
 		public void onTaskBegin(DownloadTask task);

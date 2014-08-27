@@ -182,7 +182,6 @@ public class MainActivity extends Activity implements OnClickListener,
 	@Override
 	public void onTaskAdded(DownloadTask task) {
 		Log.e(TAG, "----onTaskAdded----" + task.getTitle());
-
 	}
 
 	@Override
@@ -200,7 +199,7 @@ public class MainActivity extends Activity implements OnClickListener,
 
 	@Override
 	public void onTaskDone(DownloadTask task) {
-		// downloadListAdapter.removeItem(task.getUrl());
+		mDownloadListAdapter.removeItem(task.getUrl());
 		Log.e(TAG, "----onTaskDone----" + task.getTitle());
 	}
 
@@ -215,5 +214,11 @@ public class MainActivity extends Activity implements OnClickListener,
 	public void onTaskError(DownloadTask task, Throwable error) {
 		Log.e(TAG, "----onTaskError----" + task.getTitle() + "----error="
 				+ error.getMessage());
+	}
+
+	@Override
+	public void onTaskRecovered(DownloadTask task) {
+		// TODO Auto-generated method stub
+		mDownloadListAdapter.addItem(task, true);
 	}
 }

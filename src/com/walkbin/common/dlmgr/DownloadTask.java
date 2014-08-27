@@ -43,6 +43,7 @@ public class DownloadTask implements Runnable {
 	private long mTotalTime;
 	private Throwable mError = null;
 	private boolean mCanceled = false;
+	private boolean mPaused = false;
 
 	private final class ProgressReportingRandomAccessFile extends
 			RandomAccessFile {
@@ -135,7 +136,8 @@ public class DownloadTask implements Runnable {
 	public void syncContinueInfo() {
 		if (mTempFile != null && mTempFile.exists()) {
 			mPreviousFileSize = mTempFile.length();
-			mDownloadPercent = mPreviousFileSize * 100 / mData.totalSize;
+			if (mData.totalSize > 0)
+				mDownloadPercent = mPreviousFileSize * 100 / mData.totalSize;
 		}
 	}
 
@@ -185,11 +187,15 @@ public class DownloadTask implements Runnable {
 	public void cancel() {
 		mCanceled = true;
 	}
+	
+	public void pause(){
+		mPaused = true;
+	}
 
 	// @Override
 	protected void onProgressUpdate(Integer... progress) {
 
-		if (isInterrupt())
+		if (mCanceled || mPaused)
 			return;
 
 		if (progress.length > 1) {
@@ -285,7 +291,7 @@ public class DownloadTask implements Runnable {
 		int bytesCopied = copy(input, mOutputStream);
 
 		if ((mPreviousFileSize + bytesCopied) != mData.totalSize
-				&& mData.totalSize != -1 && !mCanceled) {
+				&& mData.totalSize != -1 && !mCanceled && !mPaused) {
 			throw new IOException("Download incomplete: " + bytesCopied
 					+ " != " + mData.totalSize);
 		}
@@ -322,7 +328,7 @@ public class DownloadTask implements Runnable {
 			out.seek(out.length());
 
 			// we can fill the buffer totally then write into file
-			while (!mCanceled) {
+			while (!mCanceled && !mPaused) {
 				n = 0;
 				while (n < buffer.length) {
 					int len = in.read(buffer, n, buffer.length - n);
@@ -414,14 +420,20 @@ public class DownloadTask implements Runnable {
 		}
 
 		this.mContext = null;
-		if (result == -1 || mCanceled || mError != null) {
+		if (result == -1 || mError != null) {
 			if (DownloadManagerConfig.DEBUG && mError != null) {
 				Log.e(TAG, "Download failed." + mError.getMessage());
 			}
 			mData.status = DownloadStatus.FAILED;
 			if (mListener != null)
 				mListener.onError(this, mError);
-		} else {
+		} else if(mCanceled){
+			if (mListener != null)
+				mListener.onCanceled(this);
+		} else if(mPaused){
+			if (mListener != null)
+				mListener.onPaused(this);
+		}else {
 			// finish download
 			mData.status = DownloadStatus.DONE;
 			mTempFile.renameTo(mFile);
@@ -443,6 +455,10 @@ public class DownloadTask implements Runnable {
 		// public void onBegin(DownloadTask task);
 
 		public void onError(DownloadTask task, Throwable error);
+		
+		public void onCanceled(DownloadTask task);
+		
+		public void onPaused(DownloadTask task);
 	}
 
 }

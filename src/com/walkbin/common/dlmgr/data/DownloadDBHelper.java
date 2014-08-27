@@ -27,7 +27,7 @@ public class DownloadDBHelper extends SQLiteOpenHelper {
 	public void onCreate(SQLiteDatabase db) {
 		db.execSQL("create table if not exists " + TABLE_DOWNLOAD_TASK + "("
 				+ "url varchar(256) primary key," + "param varchar, "
-				+ "status int, "+ "totalSize int, " + "createTime bigint" + ")");
+				+ "status int, "+ "totalSize bigint, " + "createTime bigint" + ")");
 	}
 
 	@Override
@@ -183,13 +183,13 @@ public class DownloadDBHelper extends SQLiteOpenHelper {
 		} else {
 			SQLiteDatabase db = null;
 			try {
-				db = getReadableDatabase();
+				db = getWritableDatabase();
 				ContentValues values = new ContentValues();
 				values.put("param", info.params.tranToString());
 				values.put("totalSize", info.totalSize);
 				values.put("status", info.status.ordinal());
 				String whereClause = "url=?";
-				String[] whereArgs = { findInfo.url };
+				String[] whereArgs = { info.url };
 				db.update(getTableName(), values, whereClause, whereArgs);
 			} finally {
 				if (db != null) {
@@ -204,6 +204,7 @@ public class DownloadDBHelper extends SQLiteOpenHelper {
 		info.url = cursor.getString(cursor.getColumnIndex("url"));
 		String paramStr = cursor.getString(cursor.getColumnIndex("param"));
 		info.params.restoreFromString(paramStr);
+		info.totalSize = cursor.getLong(cursor.getColumnIndex("totalSize"));
 		info.status = DownloadStatus.values()[cursor.getInt(cursor.getColumnIndex("status"))];
 		info.createTime = cursor.getLong(cursor.getColumnIndex("createTime"));
 		return info;
