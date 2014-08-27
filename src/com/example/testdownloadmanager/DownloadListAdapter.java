@@ -40,10 +40,10 @@ public class DownloadListAdapter extends BaseAdapter {
 		return position;
 	}
 
-	public void addItem(DownloadTask task,boolean ifNotify) {
+	public void addItem(DownloadTask task, boolean ifNotify) {
 		HashMap<Integer, String> item = ViewHolder.createItemDataMap(task);
 		dataList.add(item);
-		if(ifNotify)
+		if (ifNotify)
 			notifyDataSetChanged();
 	}
 
@@ -66,21 +66,21 @@ public class DownloadListAdapter extends BaseAdapter {
 		while (it.hasNext()) {
 			tmp = it.next().get(ViewHolder.KEY_URL);
 			task = mDLMgr.getTask(tmp);
-			if(task != null)
-			ViewHolder.updateDataMap(it.next(),task);
+			if (task != null)
+				ViewHolder.updateDataMap(it.next(), task);
 		}
-		
+
 		notifyDataSetChanged();
 	}
-	
-	public void pauseResumeAllItems(boolean ifPause){
-		
+
+	public void pauseResumeAllItems(boolean ifPause) {
+
 		Iterator<HashMap<Integer, String>> it = dataList.iterator();
 		while (it.hasNext()) {
 			HashMap<Integer, String> item = it.next();
 			item.put(ViewHolder.KEY_IS_PAUSED, String.valueOf(ifPause));
 		}
-		
+
 		notifyDataSetChanged();
 	}
 
@@ -140,15 +140,19 @@ public class DownloadListAdapter extends BaseAdapter {
 		@Override
 		public void onClick(View v) {
 			switch (v.getId()) {
-			case R.id.btn_continue:
+			case R.id.btn_continue:{
 				mDLMgr.continueTask(url);
-				mViewHolder.continueButton.setVisibility(View.GONE);
-				mViewHolder.pauseButton.setVisibility(View.VISIBLE);
+				HashMap<Integer, String> itemData = mViewHolder.getData();
+				itemData.put(ViewHolder.KEY_IS_PAUSED, String.valueOf(false));
+				mViewHolder.setData(itemData);
+			}
 				break;
-			case R.id.btn_pause:
+			case R.id.btn_pause: {
 				mDLMgr.pauseTask(url);
-				mViewHolder.continueButton.setVisibility(View.VISIBLE);
-				mViewHolder.pauseButton.setVisibility(View.GONE);
+				HashMap<Integer, String> itemData = mViewHolder.getData();
+				itemData.put(ViewHolder.KEY_IS_PAUSED, String.valueOf(true));
+				mViewHolder.setData(itemData);
+			}
 				break;
 			case R.id.btn_delete:
 				removeItem(url);

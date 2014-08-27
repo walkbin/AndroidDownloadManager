@@ -25,14 +25,14 @@ import com.walkbin.common.dlmgr.error.TaskAlreadyExistException;
 public enum DownloadManager {
 
 	INSTANCE;
-	
+
 	private List<DownloadTask> mDownloadingTasks;
 	private List<DownloadTask> mPausingTasks;
 	private List<DownloadTaskData> mDownloadedTasks;
 	private DownloadDBHelper mDBHelper;
 	private List<DownloadManagerListener> mListeners;
 	private ExecutorService mTaskPool;
-	private TaskBufferQueue mTaskBufferQueue;	
+	private TaskBufferQueue mTaskBufferQueue;
 	private Context mContext;
 
 	static final String TAG = "DownloadManager";
@@ -58,12 +58,12 @@ public enum DownloadManager {
 
 	private Boolean isRunning = false;
 
-	public DownloadManager setContext(Context context){
+	public DownloadManager setContext(Context context) {
 		mContext = context;
 		mDBHelper = new DownloadDBHelper(mContext);
 		return this;
 	}
-	
+
 	private DownloadManager() {
 		mDownloadingTasks = new ArrayList<DownloadTask>();
 		mPausingTasks = new ArrayList<DownloadTask>();
@@ -141,32 +141,47 @@ public enum DownloadManager {
 	}
 
 	public DownloadTask getTask(String url) {
+		return getTask(url, false);
+	}
+
+	private DownloadTask getTask(String url, boolean needRemove) {
 
 		DownloadTask task = null;
 
 		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
 		while (itTask.hasNext()) {
-			task = (DownloadTask) itTask.next();
-			if (task.getUrl().equals(url))
-				return task;
+			DownloadTask dt = (DownloadTask) itTask.next();
+			if (dt.getUrl().equals(url)) {
+				task = dt;
+				if (needRemove)
+					itTask.remove();
+				break;
+			}
 		}
 
 		itTask = mTaskBufferQueue.iterator();
 		while (itTask.hasNext()) {
-			task = (DownloadTask) itTask.next();
-			if (task.getUrl().equals(url)) {
-				return task;
+			DownloadTask dt = (DownloadTask) itTask.next();
+			if (dt.getUrl().equals(url)) {
+				task = dt;
+				if (needRemove)
+					itTask.remove();
+				break;
 			}
 		}
 
 		itTask = mPausingTasks.iterator();
 		while (itTask.hasNext()) {
-			task = (DownloadTask) itTask.next();
-			if (task.getUrl().equals(url))
-				return task;
+			DownloadTask dt = (DownloadTask) itTask.next();
+			if (dt.getUrl().equals(url)) {
+				task = dt;
+				if (needRemove)
+					itTask.remove();
+				break;
+			}
 		}
 
-		return null;
+		return task;
 	}
 
 	public int getQueueTaskCount() {
@@ -187,7 +202,7 @@ public enum DownloadManager {
 	}
 
 	/** 恢复任务 */
-	public synchronized void checkUncompleteTasks() {
+	private void checkUncompleteTasks() {
 
 		ArrayList<DownloadTaskData> taskDatas = mDBHelper.findAllTaskData();
 
@@ -242,38 +257,15 @@ public enum DownloadManager {
 		mListeners.remove(l);
 	}
 
-	public synchronized void deleteTask(String url) {
+	private void deleteTask(DownloadTask task) {
+		if (task == null)
+			return;
 
-		DownloadTask task;
-		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
+		task.cancel();
 
-		while (itTask.hasNext()) {
-			task = itTask.next();
-			if (task != null && task.getUrl().equals(url)) {
-				task.cancel();
-				notifyTask(NotifyAction.NA_DELETE, task);
-				itTask.remove();
-			}
-		}
+		notifyTask(NotifyAction.NA_DELETE, task);
 
-		itTask = mTaskBufferQueue.iterator();
-		while (itTask.hasNext()) {
-			task = (DownloadTask) itTask.next();
-			if (task != null && task.getUrl().equals(url)) {
-				notifyTask(NotifyAction.NA_DELETE, task);
-				itTask.remove();
-			}
-		}
-
-		itTask = mPausingTasks.iterator();
-		while (itTask.hasNext()) {
-			task = itTask.next();
-			if (task != null && task.getUrl().equals(url)) {
-				notifyTask(NotifyAction.NA_DELETE, task);
-				itTask.remove();
-			}
-		}
-
+		String url = task.getUrl();
 		File file = DownloadManagerHelper.getFile(url);
 		if (file.exists())
 			file.delete();
@@ -283,8 +275,15 @@ public enum DownloadManager {
 			file.delete();
 
 		syncDBDelete(url);
+	}
 
-		tryPollTask();
+	public synchronized void deleteTask(String url) {
+
+		DownloadTask task = getTask(url, true);
+		if (task != null) {
+			deleteTask(task);
+			tryPollTask();
+		}
 	}
 
 	/** 清除当前所有的下载任务 */
@@ -295,55 +294,21 @@ public enum DownloadManager {
 
 		while (itTask.hasNext()) {
 			task = itTask.next();
-			task.cancel();
-			notifyTask(NotifyAction.NA_DELETE, task);
-
-			String url = task.getUrl();
-			File file = DownloadManagerHelper.getFile(url);
-			if (file.exists())
-				file.delete();
-
-			file = DownloadManagerHelper.getTempFile(url);
-			if (file.exists())
-				file.delete();
-
-			syncDBDelete(url);
+			deleteTask(task);
 			itTask.remove();
 		}
 
 		itTask = mPausingTasks.iterator();
 		while (itTask.hasNext()) {
 			task = itTask.next();
-			notifyTask(NotifyAction.NA_DELETE, task);
-
-			String url = task.getUrl();
-			File file = DownloadManagerHelper.getFile(url);
-			if (file.exists())
-				file.delete();
-
-			file = DownloadManagerHelper.getTempFile(url);
-			if (file.exists())
-				file.delete();
-
-			syncDBDelete(task.getUrl());
+			deleteTask(task);
 			itTask.remove();
 		}
 
 		itTask = mTaskBufferQueue.iterator();
 		while (itTask.hasNext()) {
 			task = (DownloadTask) itTask.next();
-			notifyTask(NotifyAction.NA_DELETE, task);
-			String url = task.getUrl();
-
-			File file = DownloadManagerHelper.getFile(url);
-			if (file.exists())
-				file.delete();
-
-			file = DownloadManagerHelper.getTempFile(url);
-			if (file.exists())
-				file.delete();
-
-			syncDBDelete(url);
+			deleteTask(task);
 			itTask.remove();
 		}
 	}
@@ -387,35 +352,35 @@ public enum DownloadManager {
 
 	public synchronized void pauseAllTask() {
 
-//		sLogicHdlr.post(new Runnable() {
-//
-//			@Override
-//			public void run() {
+		// sLogicHdlr.post(new Runnable() {
+		//
+		// @Override
+		// public void run() {
 
-				DownloadTask task;
+		DownloadTask task;
 
-				Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
-				while (itTask.hasNext()) {
-					task = itTask.next();
-					task.cancel();
-					DownloadTaskData data = task.getData();
-					data.status = DownloadStatus.PAUSED;
-					task = newDownloadTask(data.copy());
-					mPausingTasks.add(task);
-					syncDBUpdate(data);
-				}
-				mDownloadingTasks.clear();
+		Iterator<DownloadTask> itTask = mDownloadingTasks.iterator();
+		while (itTask.hasNext()) {
+			task = itTask.next();
+			task.cancel();
+			DownloadTaskData data = task.getData();
+			data.status = DownloadStatus.PAUSED;
+			task = newDownloadTask(data.copy());
+			mPausingTasks.add(task);
+			syncDBUpdate(data);
+		}
+		mDownloadingTasks.clear();
 
-				itTask = mTaskBufferQueue.iterator();
-				while (itTask.hasNext()) {
-					task = itTask.next();
-					task.getData().status = DownloadStatus.PAUSED;
-					mPausingTasks.add(task);
-					syncDBUpdate(task.getData());
-				}
-				mTaskBufferQueue.clear();
-//			}
-//		});
+		itTask = mTaskBufferQueue.iterator();
+		while (itTask.hasNext()) {
+			task = itTask.next();
+			task.getData().status = DownloadStatus.PAUSED;
+			mPausingTasks.add(task);
+			syncDBUpdate(task.getData());
+		}
+		mTaskBufferQueue.clear();
+		// }
+		// });
 	}
 
 	public synchronized void continueTask(String url) {
@@ -426,7 +391,7 @@ public enum DownloadManager {
 		while (itTask.hasNext()) {
 			task = itTask.next();
 			if (task.getUrl().equals(url)) {
-				
+
 				task.syncContinueInfo();
 				addTask(task);
 				itTask.remove();
@@ -437,22 +402,22 @@ public enum DownloadManager {
 
 	public synchronized void continueAllTask() {
 
-//		sLogicHdlr.post(new Runnable() {
-//
-//			@Override
-//			public void run() {
-				DownloadTask task;
-				Iterator<DownloadTask> itTask = mPausingTasks.iterator();
+		// sLogicHdlr.post(new Runnable() {
+		//
+		// @Override
+		// public void run() {
+		DownloadTask task;
+		Iterator<DownloadTask> itTask = mPausingTasks.iterator();
 
-				while (itTask.hasNext()) {
-					task = itTask.next();
-					task.syncContinueInfo();
-					addTask(task);
-				}
+		while (itTask.hasNext()) {
+			task = itTask.next();
+			task.syncContinueInfo();
+			addTask(task);
+		}
 
-				mPausingTasks.clear();
-//			}
-//		});
+		mPausingTasks.clear();
+		// }
+		// });
 
 	}
 
@@ -506,8 +471,10 @@ public enum DownloadManager {
 
 			@Override
 			public void onUpdate(DownloadTask task) {
-				syncDBUpdate(task.getData());
-				notifyTask(NotifyAction.NA_UPDATE, task);
+				if (!mPausingTasks.contains(task)) {
+					syncDBUpdate(task.getData());
+					notifyTask(NotifyAction.NA_UPDATE, task);
+				}
 			}
 
 			@Override
@@ -622,7 +589,8 @@ public enum DownloadManager {
 					break;
 				case NA_UPDATE:
 					Log.w(TAG, "---NA_UPDATE--" + mTask.getTitle());
-					l.onTaskUpdate(mTask);
+					if (!mPausingTasks.contains(mTask))
+						l.onTaskUpdate(mTask);
 					break;
 				case NA_ERROR:
 					l.onTaskError(mTask, (Throwable) mParam);

@@ -76,8 +76,8 @@ public class MainActivity extends Activity implements OnClickListener,
 		setContentView(R.layout.activity_main);
 
 		mDLMgr = DownloadManager.INSTANCE.setContext(this);
-		mDLMgr.startManage();
-
+		mDLMgr.addListener(this);
+		
 		mDownloadListView = (ListView) findViewById(R.id.download_list);
 		mDownloadListAdapter = new DownloadListAdapter(this);
 		mDownloadListView.setAdapter(mDownloadListAdapter);
@@ -93,8 +93,8 @@ public class MainActivity extends Activity implements OnClickListener,
 		mBtnPauseAll.setOnClickListener(this);
 		mBtnResumeAll.setOnClickListener(this);
 		mBtnDeleteAll.setOnClickListener(this);
-
-		mDLMgr.addListener(this);
+		
+		mDLMgr.startManage();
 	}
 
 	@Override

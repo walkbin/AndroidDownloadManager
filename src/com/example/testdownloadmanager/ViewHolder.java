@@ -24,12 +24,15 @@ public class ViewHolder {
 	public TextView titleText;
 	public ProgressBar progressBar;
 	public TextView speedText;
+	public TextView stateText;
 	public TextView sizeText;
 	public TextView percentText;
 
 	public Button pauseButton;
 	public Button deleteButton;
 	public Button continueButton;
+	
+	HashMap<Integer, String> mItem;
 
 	private boolean hasInited = false;
 
@@ -37,7 +40,9 @@ public class ViewHolder {
 		if (parentView != null) {
 
 			titleText = (TextView) parentView.findViewById(R.id.text_title);
-			speedText = (TextView) parentView.findViewById(R.id.text_state);
+			stateText = (TextView) parentView.findViewById(R.id.text_state);
+			stateText.setText("已暂停");
+			speedText = (TextView) parentView.findViewById(R.id.text_speed);
 			sizeText = (TextView) parentView.findViewById(R.id.text_size);
 			percentText = (TextView) parentView.findViewById(R.id.text_percent);
 
@@ -72,6 +77,9 @@ public class ViewHolder {
 
 	public void setData(HashMap<Integer, String> item) {
 		if (hasInited) {
+			
+			mItem = item;
+			
 			titleText.setText(item.get(KEY_TITLE));
 
 			percentText.setText(item.get(KEY_PROGRESS) + "%");
@@ -83,15 +91,22 @@ public class ViewHolder {
 				progressBar.setProgress(Integer.parseInt(progress));
 			}
 			if (Boolean.parseBoolean(item.get(KEY_IS_PAUSED))) {
-				speedText.setText("已暂停");
+				stateText.setVisibility(View.VISIBLE);
+				speedText.setVisibility(View.GONE);
 				pauseButton.setVisibility(View.GONE);
 				continueButton.setVisibility(View.VISIBLE);
 			} else {
+				stateText.setVisibility(View.GONE);
+				speedText.setVisibility(View.VISIBLE);
 				speedText.setText(item.get(KEY_SPEED));
 				pauseButton.setVisibility(View.VISIBLE);
 				continueButton.setVisibility(View.GONE);
 			}
 		}
+	}
+	
+	public HashMap<Integer, String> getData(){
+		return mItem;
 	}
 
 	// public void setData(String url, String speed, String progress) {

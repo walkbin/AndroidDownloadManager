@@ -18,6 +18,7 @@ import android.util.Log;
 import com.walkbin.common.dlmgr.data.DownloadTaskData;
 import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
 import com.walkbin.common.dlmgr.error.FileAlreadyExistException;
+import com.walkbin.common.dlmgr.error.InvalidContentException;
 import com.walkbin.common.dlmgr.error.NoMemoryException;
 import com.walkbin.common.dlmgr.http.AndroidHttpClient;
 
@@ -36,6 +37,7 @@ public class DownloadTask implements Runnable {
 	private long mDownloadSize;
 	private long mPreviousFileSize;
 	private long mDownloadPercent;
+	private long mLastDownloadPercentWhenNotify;
 	private long mNetworkSpeed;// byte per second
 	private long mPreviousTime;
 	private long mTotalTime;
@@ -203,9 +205,13 @@ public class DownloadTask implements Runnable {
 			mDownloadSize = progress[0];
 			mDownloadPercent = (mDownloadSize + mPreviousFileSize) * 100
 					/ mData.totalSize;
-			mNetworkSpeed = (mDownloadSize * 1000 / mTotalTime);
+			mNetworkSpeed = (mDownloadSize * 1000 / mTotalTime); // take bps as
+																	// unit
 			if (mListener != null)
-				mListener.onUpdate(this);
+				if (mDownloadPercent > mLastDownloadPercentWhenNotify) {
+					mLastDownloadPercentWhenNotify = mDownloadPercent;
+					mListener.onUpdate(this);
+				}
 		}
 	}
 
@@ -214,7 +220,8 @@ public class DownloadTask implements Runnable {
 	private HttpResponse mResponse;
 
 	private long download() throws NetworkErrorException, IOException,
-			FileAlreadyExistException, NoMemoryException {
+			FileAlreadyExistException, NoMemoryException,
+			InvalidContentException {
 
 		if (DownloadManagerConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "----begin download-----totalSize: "
@@ -229,6 +236,10 @@ public class DownloadTask implements Runnable {
 		mHttpGet = new HttpGet(mData.url);
 		mResponse = mClient.execute(mHttpGet);
 		mData.totalSize = mResponse.getEntity().getContentLength();
+
+		if (mData.totalSize <= 0) {
+			throw new InvalidContentException("content length is invalid");
+		}
 
 		if (mFile.exists() && mData.totalSize == mFile.length()) {
 			if (DownloadManagerConfig.DEBUG) {
@@ -310,11 +321,19 @@ public class DownloadTask implements Runnable {
 
 			out.seek(out.length());
 
+			// we can fill the buffer totally then write into file
 			while (!mCanceled) {
-				n = in.read(buffer, 0, buffer.length);
-				if (n == -1) {
-					break;
+				n = 0;
+				while (n < buffer.length) {
+					int len = in.read(buffer, n, buffer.length - n);
+					if (len == -1)
+						break;
+					n += len;
 				}
+
+				if (n == 0)
+					break;
+
 				out.write(buffer, 0, n);
 				count += n;
 
@@ -338,6 +357,12 @@ public class DownloadTask implements Runnable {
 					errorBlockTimePreviousTime = -1;
 				}
 			}
+
+			if (n > 0) {
+				out.write(buffer, 0, n);
+				count += n;
+			}
+
 		} finally {
 			mClient.close(); // must close client first
 			mClient = null;
@@ -374,6 +399,8 @@ public class DownloadTask implements Runnable {
 		} catch (NoMemoryException e) {
 			mError = e;
 		} catch (IOException e) {
+			mError = e;
+		} catch (InvalidContentException e) {
 			mError = e;
 		} finally {
 			if (mClient != null) {
