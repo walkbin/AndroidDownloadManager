@@ -4,13 +4,11 @@ import java.io.File;
 
 import android.os.Environment;
 
-public class DownloadManagerConfig {
+public class DownloadManagerDefaultConfig {
 
     public static final boolean DEBUG = true;
 	/**同时下载的任务数*/
 	public static final int MAX_CONCURRENT_COUNT = 3;
-	
-	public static final int GET_WORK_PERIOD = 1000;//ms
 	
 	/**下载文件的存放的目录名*/
 	public static final String DIR_DOWNLOAD = "testtest";
@@ -46,5 +44,9 @@ public class DownloadManagerConfig {
 	
 	public static final String getFileTempSuffix(){
 		return DEFAULT_TEMP_FILE_SUFFIX;
+	}
+	
+	public static final String getSDCardRoot(){
+		return SDCARD_ROOT;
 	}
 }

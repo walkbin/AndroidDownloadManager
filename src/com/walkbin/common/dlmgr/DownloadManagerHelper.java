@@ -4,8 +4,6 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.text.DecimalFormat;
-import java.util.UUID;
-
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
@@ -37,23 +35,6 @@ public class DownloadManagerHelper {
 		return false;
 	}
 
-	public static String getFileNameFromUrl(String url) {
-		// 通过 ‘？’ 和 ‘/’ 判断文件名
-		int index = url.lastIndexOf('?');
-		String filename;
-		if (index > 1) {
-			filename = url.substring(url.lastIndexOf('/') + 1, index);
-		} else {
-			filename = url.substring(url.lastIndexOf('/') + 1);
-		}
-
-		if (filename == null || "".equals(filename.trim())) {// 如果获取不到文件名称
-			filename = UUID.randomUUID()
-					+ DownloadManagerConfig.getFileSuffix(url);// 默认取一个文件名
-		}
-		return filename;
-	}
-
 	public static String getUrlFileName(String url) {
 
 		if (TextUtils.isEmpty(url))
@@ -74,7 +55,7 @@ public class DownloadManagerHelper {
 		if (TextUtils.isEmpty(fileName))
 			return null;
 
-		return new File(DownloadManagerConfig.FILE_ROOT, fileName);
+		return new File(DownloadManagerDefaultConfig.FILE_ROOT, fileName);
 	}
 
 	public static File getTempFile(String url) {
@@ -82,8 +63,8 @@ public class DownloadManagerHelper {
 		if (TextUtils.isEmpty(fileName))
 			return null;
 
-		return new File(DownloadManagerConfig.FILE_ROOT, fileName
-				+ DownloadManagerConfig.getFileTempSuffix());
+		return new File(DownloadManagerDefaultConfig.FILE_ROOT, fileName
+				+ DownloadManagerDefaultConfig.getFileTempSuffix());
 	}
 
 	public static boolean isSdCardWrittenable() {
@@ -104,35 +85,22 @@ public class DownloadManagerHelper {
 		return version;
 	}
 
-	public static long getAvailableStorage() {
+	public static long getAvailableStorage(String workingDir) {
 
-        String storageDirectory = null;
-        storageDirectory = Environment.getExternalStorageDirectory().toString();
+		try {
+			StatFs stat = new StatFs(workingDir);
 
-        try {
-            StatFs stat = new StatFs(storageDirectory);
-            
-            long avaliableSize = 0;
-//            if(getAndroidSDKVersion() >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR2){
-//            	avaliableSize = (stat.getAvailableBlocksLong() *  stat.getBlockSizeLong());
-//            }else
-            {
-            	avaliableSize = ((long) stat.getAvailableBlocks() * (long) stat.getBlockSize());
-            }
-            
-            return avaliableSize;
-        } catch (RuntimeException ex) {
-            return 0;
-        }
-    }
+			long avaliableSize = ((long) stat.getAvailableBlocks() * (long) stat
+					.getBlockSize());
 
-	public static boolean checkAvailableStorage() {
-
-		if (getAvailableStorage() < DownloadManagerConfig.LOW_STORAGE_THRESHOLD) {
-			return false;
+			return avaliableSize;
+		} catch (RuntimeException ex) {
+			return 0;
 		}
+	}
 
-		return true;
+	public static boolean checkLeftStorageEnough(String workingDir,long threshold) {
+		return getAvailableStorage(workingDir) >= threshold;
 	}
 
 	public static boolean isSDCardPresent() {
@@ -141,11 +109,11 @@ public class DownloadManagerHelper {
 				Environment.MEDIA_MOUNTED);
 	}
 
-	public static void mkdir() {
+	public static void mkdir(String dirPath) {
 
-		File file = new File(DownloadManagerConfig.FILE_ROOT);
+		File file = new File(dirPath);
 		if (!file.exists() || !file.isDirectory())
-			file.mkdir();
+			file.mkdirs();
 	}
 
 	// public static Bitmap getLoacalBitmap(String url) {
@@ -176,12 +144,10 @@ public class DownloadManagerHelper {
 		return size(speed) + "/s";
 	}
 
-	public static void installAPK(Context context, final String url) {
+	public static void installAPK(Context context, final String filePath) {
 
 		Intent intent = new Intent(Intent.ACTION_VIEW);
-		String fileName = DownloadManagerConfig.FILE_ROOT
-				+ getFileNameFromUrl(url);
-		intent.setDataAndType(Uri.fromFile(new File(fileName)),
+		intent.setDataAndType(Uri.fromFile(new File(filePath)),
 				"application/vnd.android.package-archive");
 		intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 		intent.setClassName("com.android.packageinstaller",
@@ -210,5 +176,10 @@ public class DownloadManagerHelper {
 			Log.e(null, "File does not exist.");
 			return false;
 		}
+	}
+
+	public static boolean isPathInSDCard(String dirPath) {
+		return !TextUtils.isEmpty(dirPath)
+				&& dirPath.contains(DownloadManagerDefaultConfig.getSDCardRoot());
 	}
 }

@@ -4,7 +4,7 @@ import java.util.HashMap;
 
 import com.walkbin.common.dlmgr.DownloadManagerHelper;
 import com.walkbin.common.dlmgr.DownloadTask;
-import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.data.DownloadStatus;
 
 import android.text.TextUtils;
 import android.view.View;

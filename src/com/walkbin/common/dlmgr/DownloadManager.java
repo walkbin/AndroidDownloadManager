@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 
 import com.walkbin.common.dlmgr.data.DownloadDBHelper;
 import com.walkbin.common.dlmgr.data.DownloadTaskData;
-import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.data.DownloadStatus;
 import com.walkbin.common.dlmgr.error.SDCardCannotWriteException;
 import com.walkbin.common.dlmgr.error.SDCardNotFoundException;
 import com.walkbin.common.dlmgr.error.TaskAlreadyExistException;
@@ -25,6 +25,10 @@ import com.walkbin.common.dlmgr.error.TaskAlreadyExistException;
 public enum DownloadManager {
 
 	INSTANCE;
+	
+	private String mWorkingDir = DownloadManagerDefaultConfig.FILE_ROOT;
+	private long mStorageThreshold = DownloadManagerDefaultConfig.LOW_STORAGE_THRESHOLD;
+	private int mMaxConcurrentCount = DownloadManagerDefaultConfig.MAX_CONCURRENT_COUNT;
 
 	private List<DownloadTask> mDownloadingTasks;
 	private List<DownloadTask> mPausingTasks;
@@ -63,6 +67,25 @@ public enum DownloadManager {
 		mDBHelper = new DownloadDBHelper(mContext);
 		return this;
 	}
+	
+	public Context getContext(){
+		return mContext;
+	}
+	
+	public DownloadManager setWorkingDir(String workingDir){
+		mWorkingDir = workingDir;
+		return this;
+	}
+	
+	public DownloadManager setThreshold(long threshold){
+		mStorageThreshold = threshold;
+		return this;
+	}
+	
+	public DownloadManager setMaxConcurrentCount(int count){
+		mMaxConcurrentCount = count;
+		return this;
+	}
 
 	private DownloadManager() {
 		mDownloadingTasks = new ArrayList<DownloadTask>();
@@ -70,21 +93,19 @@ public enum DownloadManager {
 		mDownloadedTasks = new ArrayList<DownloadTaskData>();
 		mNotifyHdlr = new Handler();
 		mListeners = new ArrayList<DownloadManager.DownloadManagerListener>();
-		mTaskPool = Executors
-				.newFixedThreadPool(DownloadManagerConfig.MAX_CONCURRENT_COUNT);
 		mTaskBufferQueue = new TaskBufferQueue();
 	}
 
 	public void startManage() {
 		isRunning = true;
-		DownloadManagerHelper.mkdir();
+		mTaskPool = Executors
+				.newFixedThreadPool(mMaxConcurrentCount);
+		DownloadManagerHelper.mkdir(mWorkingDir);
 		initLocalTasks();
 	}
 
 	public void close() {
 		isRunning = false;
-		// pauseAllTask();
-//		sLogicHdlr.removeCallbacksAndMessages(null);
 	}
 
 	public boolean isRunning() {
@@ -133,6 +154,8 @@ public enum DownloadManager {
 			case FAILED:
 				break;
 			case SUSPEND:
+				task = addTaskSafely(data);
+				needAdd = true;
 				break;
 			case WAITING:
 				break;
@@ -151,7 +174,7 @@ public enum DownloadManager {
 		try {
 			return addTask(data);
 		} catch (Exception e) {
-			if (DownloadManagerConfig.DEBUG) {
+			if (DownloadManagerDefaultConfig.DEBUG) {
 				e.printStackTrace();
 			}
 			return null;
@@ -166,14 +189,16 @@ public enum DownloadManager {
 			throw new TaskAlreadyExistException("task already exist");
 		}
 
-		if (!DownloadManagerHelper.isSDCardPresent()) {
-			throw new SDCardNotFoundException("sd card not found");
-		}
+		if(DownloadManagerHelper.isPathInSDCard(mWorkingDir)){
+			if (!DownloadManagerHelper.isSDCardPresent()) {
+				throw new SDCardNotFoundException("sd card not found");
+			}
 
-		if (!DownloadManagerHelper.isSdCardWrittenable()) {
-			throw new SDCardCannotWriteException("sd card cannot be written");
+			if (!DownloadManagerHelper.isSdCardWrittenable()) {
+				throw new SDCardCannotWriteException("sd card cannot be written");
+			}
 		}
-
+		
 		DownloadTask task = createDownloadTask(data);
 		if (task.getFile() == null) {
 			throw new MalformedURLException();
@@ -251,10 +276,18 @@ public enum DownloadManager {
 	public int getPausingTaskCount() {
 		return mPausingTasks.size();
 	}
+	
+	public int getDoneTaskCount(){
+		return mDownloadedTasks.size();
+	}
 
 	public int getTotalTaskCount() {
 		return getQueueTaskCount() + getDownloadingTaskCount()
 				+ getPausingTaskCount();
+	}
+	
+	public boolean hasEnoughLeftStorage(long size){
+		return DownloadManagerHelper.checkLeftStorageEnough(mWorkingDir, size + mStorageThreshold);
 	}
 
 	public synchronized void addListener(DownloadManagerListener l) {
@@ -493,8 +526,17 @@ public enum DownloadManager {
 			public void onError(DownloadTask task, Throwable error) {
 
 				if (error != null) {
-					Toast.makeText(mContext, "Error: " + error.getMessage(),
-							Toast.LENGTH_LONG).show();
+					Log.w(TAG, "---onError--" + error.getMessage());
+					final String errString = error.getMessage();
+					mNotifyHdlr.post(new Runnable() {
+						
+						@Override
+						public void run() {
+							Toast.makeText(mContext, "Error: " + errString,
+									Toast.LENGTH_LONG).show();
+						}
+					});
+					
 				}
 
 				// Intent errorIntent = new
@@ -525,8 +567,8 @@ public enum DownloadManager {
 				
 			}
 		};
-		return new DownloadTask(mContext, data,
-				DownloadManagerConfig.FILE_ROOT, taskListener);
+		return new DownloadTask(this, data,
+				DownloadManagerDefaultConfig.FILE_ROOT, taskListener);
 	}
 
 	private void notifyTask(NotifyAction action, final DownloadTask task,
@@ -606,7 +648,7 @@ public enum DownloadManager {
 			DownloadTask task = null;
 
 			do {
-				if (mDownloadingTasks.size() >= DownloadManagerConfig.MAX_CONCURRENT_COUNT)
+				if (mDownloadingTasks.size() >= DownloadManagerDefaultConfig.MAX_CONCURRENT_COUNT)
 					break;
 
 				task = super.poll();

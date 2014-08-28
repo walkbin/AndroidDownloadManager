@@ -3,10 +3,6 @@ package com.walkbin.common.dlmgr.data;
 
 public final class DownloadTaskData {
 
-	public static enum DownloadStatus {
-		WAITING, PREPARE, DOWNLOADING, PAUSED, SUSPEND, FAILED, DONE
-	}
-
 	public String url;
 	public DownloadTaskParam params;
 	public long totalSize;

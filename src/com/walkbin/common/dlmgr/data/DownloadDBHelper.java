@@ -11,8 +11,8 @@ import android.database.sqlite.SQLiteOpenHelper;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.walkbin.common.dlmgr.DownloadManagerConfig;
-import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.DownloadManagerDefaultConfig;
+import com.walkbin.common.dlmgr.data.DownloadStatus;
 
 public class DownloadDBHelper extends SQLiteOpenHelper {
 
@@ -20,7 +20,7 @@ public class DownloadDBHelper extends SQLiteOpenHelper {
 	private static final int DATABASE_VERSION = 1;
 
 	public DownloadDBHelper(Context context) {
-		super(context, DownloadManagerConfig.DB_FILE, null, DATABASE_VERSION);
+		super(context, DownloadManagerDefaultConfig.DB_FILE, null, DATABASE_VERSION);
 	}
 
 	@Override
@@ -35,7 +35,7 @@ public class DownloadDBHelper extends SQLiteOpenHelper {
 	}
 
 	public int getMaxCount() {
-		return DownloadManagerConfig.MAX_RECORD_COUNT;
+		return DownloadManagerDefaultConfig.MAX_RECORD_COUNT;
 	}
 
 	protected String getTableName() {

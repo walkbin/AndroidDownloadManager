@@ -1,6 +1,9 @@
 
 package com.walkbin.common.dlmgr.error;
 
+/**
+ * reject adding a existing download task
+ * */
 public class TaskAlreadyExistException extends DownloadException {
 
     /**

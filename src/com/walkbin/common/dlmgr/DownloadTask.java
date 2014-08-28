@@ -12,16 +12,28 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.conn.ConnectTimeoutException;
 
 import android.accounts.NetworkErrorException;
-import android.content.Context;
 import android.util.Log;
 
 import com.walkbin.common.dlmgr.data.DownloadTaskData;
-import com.walkbin.common.dlmgr.data.DownloadTaskData.DownloadStatus;
+import com.walkbin.common.dlmgr.data.DownloadStatus;
 import com.walkbin.common.dlmgr.error.FileAlreadyExistException;
 import com.walkbin.common.dlmgr.error.InvalidContentException;
 import com.walkbin.common.dlmgr.error.NoMemoryException;
+import com.walkbin.common.dlmgr.error.SDCardCannotWriteException;
+import com.walkbin.common.dlmgr.error.SDCardNotFoundException;
+import com.walkbin.common.dlmgr.error.TaskAlreadyExistException;
 import com.walkbin.common.dlmgr.http.AndroidHttpClient;
 
+/**
+ * @see ConnectTimeoutException
+ * @see NetworkErrorException
+ * @see FileAlreadyExistException
+ * @see InvalidContentException
+ * @see NoMemoryException
+ * @see SDCardCannotWriteException
+ * @see SDCardNotFoundException
+ * @see TaskAlreadyExistException
+ * */
 public class DownloadTask implements Runnable {
 
 	private static final String TAG = "DownloadTask";
@@ -30,7 +42,7 @@ public class DownloadTask implements Runnable {
 	private File mTempFile;
 	private RandomAccessFile mOutputStream;
 	private DownloadTaskListener mListener;
-	private Context mContext;
+	private DownloadManager mMgr;
 
 	private DownloadTaskData mData;
 
@@ -66,18 +78,18 @@ public class DownloadTask implements Runnable {
 		}
 	}
 
-	public DownloadTask(Context context, DownloadTaskData data, String path) {
-		this(context, data, path, null);
+	public DownloadTask(DownloadManager mgr, DownloadTaskData data, String path) {
+		this(mgr, data, path, null);
 	}
 
-	public DownloadTask(Context context, DownloadTaskData data, String path,
+	public DownloadTask(DownloadManager mgr, DownloadTaskData data, String path,
 			DownloadTaskListener listener) {
 		super();
 		mData = data;
 		mListener = listener;
 		mFile = DownloadManagerHelper.getFile(data.url);
 		mTempFile = DownloadManagerHelper.getTempFile(data.url);
-		mContext = context;
+		mMgr = mgr;
 	}
 
 	public File getFile() {
@@ -229,12 +241,12 @@ public class DownloadTask implements Runnable {
 			FileAlreadyExistException, NoMemoryException,
 			InvalidContentException {
 
-		if (DownloadManagerConfig.DEBUG) {
+		if (DownloadManagerDefaultConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "----begin download-----totalSize: "
 					+ mData.totalSize);
 		}
 
-		if (!DownloadManagerHelper.isNetworkAvailable(mContext)) {
+		if (!DownloadManagerHelper.isNetworkAvailable(mMgr.getContext())) {
 			throw new NetworkErrorException("Network blocked.");
 		}
 
@@ -248,7 +260,7 @@ public class DownloadTask implements Runnable {
 		}
 
 		if (mFile.exists() && mData.totalSize == mFile.length()) {
-			if (DownloadManagerConfig.DEBUG) {
+			if (DownloadManagerDefaultConfig.DEBUG) {
 				Log.e(TAG, "--" + getTitle()
 						+ "---Output file already exists. Skipping download.");
 			}
@@ -263,7 +275,7 @@ public class DownloadTask implements Runnable {
 			mClient = AndroidHttpClient.newInstance(TAG);
 			mResponse = mClient.execute(mHttpGet);
 
-			if (DownloadManagerConfig.DEBUG) {
+			if (DownloadManagerDefaultConfig.DEBUG) {
 				Log.e(TAG, "--" + getTitle()
 						+ "---File is not complete, download now.");
 				Log.e(TAG,
@@ -273,18 +285,12 @@ public class DownloadTask implements Runnable {
 			}
 		}
 
-		long storage = DownloadManagerHelper.getAvailableStorage();
-		if (DownloadManagerConfig.DEBUG) {
-			Log.e(TAG, "--" + getTitle() + "---storage:" + storage
-					+ " totalSize:" + mData.totalSize);
-		}
-
-		if (mData.totalSize - mTempFile.length() > storage) {
-			throw new NoMemoryException("SD card no memory.");
+		if (mMgr.hasEnoughLeftStorage(mData.totalSize - mTempFile.length())){
+			throw new NoMemoryException("no enough storage.");
 		}
 
 		mOutputStream = new ProgressReportingRandomAccessFile(mTempFile, "rw");
-
+		mData.status = DownloadStatus.DOWNLOADING;
 		publishProgress(0, (int) mData.totalSize);
 
 		InputStream input = mResponse.getEntity().getContent();
@@ -296,7 +302,7 @@ public class DownloadTask implements Runnable {
 					+ " != " + mData.totalSize);
 		}
 
-		if (DownloadManagerConfig.DEBUG) {
+		if (DownloadManagerDefaultConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "---stop download---");
 		}
 
@@ -311,10 +317,10 @@ public class DownloadTask implements Runnable {
 			return -1;
 		}
 
-		byte[] buffer = new byte[DownloadManagerConfig.DOWNOAD_BUFFER_SIZE];
+		byte[] buffer = new byte[DownloadManagerDefaultConfig.DOWNOAD_BUFFER_SIZE];
 
 		BufferedInputStream in = new BufferedInputStream(input, buffer.length);
-		if (DownloadManagerConfig.DEBUG) {
+		if (DownloadManagerDefaultConfig.DEBUG) {
 			Log.e(TAG,
 					"--" + getTitle() + "---begin copy----length"
 							+ out.length());
@@ -343,7 +349,7 @@ public class DownloadTask implements Runnable {
 				out.write(buffer, 0, n);
 				count += n;
 
-				if (!DownloadManagerHelper.isNetworkAvailable(mContext)) {
+				if (!DownloadManagerHelper.isNetworkAvailable(mMgr.getContext())) {
 					throw new NetworkErrorException("Network blocked.");
 				}
 
@@ -351,7 +357,7 @@ public class DownloadTask implements Runnable {
 					if (errorBlockTimePreviousTime > 0) {
 						expireTime = System.currentTimeMillis()
 								- errorBlockTimePreviousTime;
-						if (expireTime > DownloadManagerConfig.DOWNLOAD_TIME_OUT) {
+						if (expireTime > DownloadManagerDefaultConfig.DOWNLOAD_TIME_OUT) {
 							throw new ConnectTimeoutException(
 									"connection time out.");
 						}
@@ -383,7 +389,7 @@ public class DownloadTask implements Runnable {
 	@Override
 	public void run() {
 
-		if (DownloadManagerConfig.DEBUG) {
+		if (DownloadManagerDefaultConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "----begin prepare-----");
 		}
 		mPreviousTime = System.currentTimeMillis();
@@ -391,7 +397,7 @@ public class DownloadTask implements Runnable {
 		if (mListener != null)
 			mListener.onPre(this);
 
-		if (DownloadManagerConfig.DEBUG) {
+		if (DownloadManagerDefaultConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "----begin download-----");
 		}
 
@@ -414,14 +420,14 @@ public class DownloadTask implements Runnable {
 			}
 		}
 
-		if (DownloadManagerConfig.DEBUG) {
+		if (DownloadManagerDefaultConfig.DEBUG) {
 			Log.e(TAG, "--" + getTitle() + "----download over--get byte="
 					+ result);
 		}
 
-		this.mContext = null;
+		mMgr = null;
 		if (result == -1 || mError != null) {
-			if (DownloadManagerConfig.DEBUG && mError != null) {
+			if (DownloadManagerDefaultConfig.DEBUG && mError != null) {
 				Log.e(TAG, "Download failed." + mError.getMessage());
 			}
 			mData.status = DownloadStatus.FAILED;
